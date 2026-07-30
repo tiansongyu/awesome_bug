@@ -6,6 +6,21 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+if(WIN32)
+    enable_language(RC)
+    file(TO_CMAKE_PATH
+        "${CMAKE_CURRENT_SOURCE_DIR}/packaging/cockroach.ico"
+        COCKROACH_ICON_PATH)
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/packaging/windows_app.rc.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/cockroach_windows_app.rc"
+        @ONLY)
+    set_source_files_properties(
+        "${CMAKE_CURRENT_BINARY_DIR}/cockroach_windows_app.rc"
+        PROPERTIES OBJECT_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/packaging/cockroach.ico")
+endif()
+
 if(MINGW)
     # Keep tests attached to a console so Wine and CI can display failures.
     # Application targets remain GUI executables via WIN32_EXECUTABLE.
@@ -27,6 +42,10 @@ set(COCKROACH_SOURCES
 
 function(add_cockroach_executable target_name default_count)
     add_executable(${target_name} ${COCKROACH_SOURCES})
+    if(WIN32)
+        target_sources(${target_name} PRIVATE
+            "${CMAKE_CURRENT_BINARY_DIR}/cockroach_windows_app.rc")
+    endif()
     target_include_directories(${target_name} PRIVATE src)
     target_compile_definitions(${target_name} PRIVATE
         COCKROACH_DEFAULT_COUNT=${default_count}
