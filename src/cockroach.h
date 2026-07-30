@@ -33,7 +33,6 @@ public:
 
     Vec2 screenCenter() const { return position_; }
     CockroachBehaviorSnapshot behaviorSnapshot() const;
-    bool hitTestBody(Vec2 screenPoint) const;
 
 private:
     SDL_Rect desktop_;
@@ -43,7 +42,6 @@ private:
     Vec2 position_;
     Vec2 target_;
     Vec2 pendingFleeDirection_;
-    Vec2 slipperTargetPosition_;
     Vec2 feedingBaitPosition_;
     Vec2 obstacleEscapeDirection_;
     float heading_ = 0.0f;
@@ -65,7 +63,6 @@ private:
     float threatCooldown_ = 0.0f;
     bool threatLatched_ = false;
     bool groomedDuringRest_ = false;
-    unsigned int respawnCount_ = 0;
     bool foodConsumedThisFrame_ = false;
     Vec2 recoveryDirection_;
     CockroachBehaviorState state_ = CockroachBehaviorState::Wander;
@@ -73,8 +70,6 @@ private:
     float randomRange(float low, float high);
     void chooseWanderTarget();
     void chooseCornerTarget(
-        const std::vector<ScreenObstacle>& obstacles);
-    void respawn(
         const std::vector<ScreenObstacle>& obstacles);
     void transitionTo(CockroachBehaviorState state,
                       Vec2 direction = {});

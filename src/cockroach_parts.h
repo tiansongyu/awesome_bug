@@ -65,8 +65,7 @@ enum class CockroachAnimationMode {
     Normal,
     Lurking,
     Grooming,
-    Feeding,
-    Dead
+    Feeding
 };
 
 const std::array<CockroachPartDefinition,

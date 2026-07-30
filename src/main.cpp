@@ -82,9 +82,7 @@ void printUsage(const char* programName) {
         << "  --frames N            exit after N frames (useful for testing)\n"
         << "  --help                 show this help\n\n"
         << "Windows single-pet hotkeys:\n"
-        << "  Ctrl+Alt+S            toggle slipper hunt mode\n"
         << "  Ctrl+Alt+F            place or move food bait\n"
-        << "  Esc                   leave slipper hunt mode\n"
         << "Press Ctrl+Alt+Q to close the running overlay.\n";
 }
 
@@ -413,18 +411,8 @@ int main(int argc, char** argv) {
 #endif
         WindowsInteractionController interaction(
             windowsSinglePet, desktop);
-        std::unique_ptr<OverlayWindow> interactionOverlay;
         std::unique_ptr<OverlayWindow> baitOverlay;
         if (windowsSinglePet) {
-            interactionOverlay = std::make_unique<OverlayWindow>(
-                WindowsInteractionController::overlaySize,
-                false);
-            if (!interactionOverlay->valid()) {
-                showError(
-                    "Cannot create Windows interaction overlay: " +
-                    interactionOverlay->error());
-                return 1;
-            }
             baitOverlay = std::make_unique<OverlayWindow>(
                 WindowsInteractionController::baitOverlaySize,
                 true);
@@ -549,8 +537,7 @@ int main(int argc, char** argv) {
             while (SDL_PollEvent(&event)) {
                 if (event.type == SDL_QUIT) running = false;
                 if (event.type == SDL_KEYDOWN &&
-                    ((event.key.keysym.sym == SDLK_ESCAPE &&
-                      !interaction.slipperMode()) ||
+                    (event.key.keysym.sym == SDLK_ESCAPE ||
                      event.key.keysym.sym == SDLK_q)) {
                     running = false;
                 }
@@ -593,27 +580,9 @@ int main(int argc, char** argv) {
             }
             previousCursor = cursor;
             havePreviousCursor = true;
-            const SlipperInteractionEvents interactionEvents =
+            const WindowsInteractionEvents interactionEvents =
                 interaction.update(dt, cursor);
-            if (interactionEvents.strikeStarted) {
-                const bool hit =
-                    instances.front()->roach->hitTestBody(
-                        interactionEvents.strikePosition);
-                interaction.setStrikeHitBody(hit);
-                behaviorInput.slipperStrikeStarted = true;
-                behaviorInput.slipperHitBody = hit;
-                behaviorInput.slipperPosition =
-                    interactionEvents.strikePosition;
-            }
-            if (interactionEvents.strikeImpact) {
-                behaviorInput.slipperImpact = true;
-                behaviorInput.slipperHitBody =
-                    interaction.strikeHitBody();
-                behaviorInput.slipperPosition =
-                    interactionEvents.strikePosition;
-            }
-            desktopIcons.update(
-                cursor, !interaction.capturesMouse());
+            desktopIcons.update(cursor, true);
             if (interactionEvents.baitPlacementRequested) {
                 const std::optional<Vec2> safeBait =
                     findSafeBaitPosition(
@@ -673,21 +642,11 @@ int main(int argc, char** argv) {
             } else if (!sharedCanvas && !instances.empty()) {
                 instances.front()->overlay->finishFrame();
             }
-            if (interactionOverlay &&
-                baitOverlay &&
+            if (baitOverlay &&
                 !interaction.renderBait(*baitOverlay)) {
                 showError(
                     std::string(
                         "Bait overlay presentation failed: ") +
-                    SDL_GetError());
-                running = false;
-            }
-            if (interactionOverlay &&
-                !interaction.render(
-                    *interactionOverlay, cursor)) {
-                showError(
-                    std::string(
-                        "Interaction overlay presentation failed: ") +
                     SDL_GetError());
                 running = false;
             }

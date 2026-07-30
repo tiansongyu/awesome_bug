@@ -205,17 +205,6 @@ int main() {
         failed = true;
     }
 
-    const auto deadPose = calculateCockroachAnimation(
-        0.0f, 0.0f, 165.0f, 0.0f, 0.0f,
-        CockroachAnimationMode::Dead, 0.0f);
-    for (std::size_t leg = 0; leg < deadPose.legs.size(); ++leg) {
-        if (std::abs(deadPose.legs[leg].rotation) < 0.70f) {
-            std::cerr << "dead pose did not splay leg "
-                      << leg << '\n';
-            failed = true;
-        }
-    }
-
     const auto feedingFirst = calculateCockroachAnimation(
         0.0f, 0.0f, 165.0f, 0.0f, 0.75f,
         CockroachAnimationMode::Feeding, 0.0f);

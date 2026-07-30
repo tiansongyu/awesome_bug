@@ -46,12 +46,6 @@ Vec2 closestPoint(const ExpandedObstacle& obstacle, Vec2 point) {
             clampf(point.y, obstacle.top, obstacle.bottom)};
 }
 
-bool obstacleContainsBody(
-    const ScreenObstacle& obstacle, Vec2 point, float extent) {
-    return contains(
-        expandObstacle(obstacle, extent, extent, 4.0f), point);
-}
-
 Vec2 bodyCollisionExtents(const RoachSettings& settings, float heading) {
     // Only the rigid torso participates in collisions. Legs and antennae are
     // intentionally excluded so they may visually sweep near or over icons.
@@ -81,23 +75,6 @@ void renderSpritePart(SDL_Renderer* renderer,
         angle * 180.0 / pi, &pivot, SDL_FLIP_NONE);
 }
 
-void renderSpritePartScaled(SDL_Renderer* renderer,
-                            const LoadedTexture& sheet,
-                            const CockroachPartDefinition& part,
-                            Vec2 joint, float scaleX, float scaleY,
-                            float angle) {
-    const SDL_FRect destination{
-        joint.x - part.pivot.x * scaleX,
-        joint.y - part.pivot.y * scaleY,
-        part.source.w * scaleX,
-        part.source.h * scaleY};
-    const SDL_FPoint pivot{
-        part.pivot.x * scaleX,
-        part.pivot.y * scaleY};
-    SDL_RenderCopyExF(
-        renderer, sheet.texture, &part.source, &destination,
-        angle * 180.0 / pi, &pivot, SDL_FLIP_NONE);
-}
 } // namespace
 
 const char* cockroachBehaviorStateName(CockroachBehaviorState state) {
@@ -118,10 +95,6 @@ const char* cockroachBehaviorStateName(CockroachBehaviorState state) {
         return "seek-food";
     case CockroachBehaviorState::Feeding:
         return "feeding";
-    case CockroachBehaviorState::SlapTargeted:
-        return "slap-targeted";
-    case CockroachBehaviorState::Dead:
-        return "dead";
     case CockroachBehaviorState::Startled:
         return "startled";
     case CockroachBehaviorState::Flee:
@@ -232,132 +205,6 @@ void Cockroach::chooseCornerTarget(
     target_ = best;
 }
 
-void Cockroach::respawn(
-    const std::vector<ScreenObstacle>& obstacles) {
-    const float halfLength = settings_.bodyLength * 0.43f;
-    const float halfWidth = settings_.bodyLength * 0.20f;
-    const float safeExtent =
-        std::sqrt(halfLength * halfLength + halfWidth * halfWidth);
-    const float margin = safeExtent + 14.0f;
-
-    Vec2 spawn{
-        desktop_.x + desktop_.w * 0.5f,
-        desktop_.y + desktop_.h * 0.5f};
-    float spawnHeading = 0.0f;
-    const auto isClearSpawn =
-        [&](Vec2 candidate) {
-        for (const ScreenObstacle& obstacle : obstacles) {
-            if (obstacleContainsBody(
-                    obstacle, candidate, safeExtent)) {
-                return false;
-            }
-        }
-        return true;
-    };
-    bool found = false;
-    for (int attempt = 0; attempt < 48 && !found; ++attempt) {
-        const int edge =
-            static_cast<int>(randomRange(0.0f, 3.999f));
-        const float horizontal = randomRange(
-            desktop_.x + margin,
-            desktop_.x + desktop_.w - margin);
-        const float vertical = randomRange(
-            desktop_.y + margin,
-            desktop_.y + desktop_.h - margin);
-        switch (edge) {
-        case 0:
-            spawn = {horizontal, desktop_.y + margin};
-            spawnHeading = pi;
-            break;
-        case 1:
-            spawn = {
-                desktop_.x + desktop_.w - margin, vertical};
-            spawnHeading = -pi * 0.5f;
-            break;
-        case 2:
-            spawn = {
-                horizontal, desktop_.y + desktop_.h - margin};
-            spawnHeading = 0.0f;
-            break;
-        default:
-            spawn = {desktop_.x + margin, vertical};
-            spawnHeading = pi * 0.5f;
-            break;
-        }
-        found = isClearSpawn(spawn);
-    }
-
-    // Desktop icons can occupy most of one or more screen edges. Fall back to
-    // a deterministic interior scan instead of accepting the last blocked
-    // random edge candidate and visibly respawning inside an icon.
-    if (!found) {
-        constexpr int columns = 17;
-        constexpr int rows = 11;
-        const float minimumX = desktop_.x + margin;
-        const float maximumX =
-            desktop_.x + desktop_.w - margin;
-        const float minimumY = desktop_.y + margin;
-        const float maximumY =
-            desktop_.y + desktop_.h - margin;
-        if (minimumX <= maximumX && minimumY <= maximumY) {
-            for (int row = 0; row < rows && !found; ++row) {
-                for (int column = 0;
-                     column < columns && !found; ++column) {
-                    const float xFraction =
-                        (static_cast<float>(column) + 0.5f) /
-                        static_cast<float>(columns);
-                    const float yFraction =
-                        (static_cast<float>(row) + 0.5f) /
-                        static_cast<float>(rows);
-                    const Vec2 candidate{
-                        minimumX +
-                            (maximumX - minimumX) * xFraction,
-                        minimumY +
-                            (maximumY - minimumY) * yFraction};
-                    if (isClearSpawn(candidate)) {
-                        spawn = candidate;
-                        const Vec2 towardCenter{
-                            desktop_.x + desktop_.w * 0.5f -
-                                spawn.x,
-                            desktop_.y + desktop_.h * 0.5f -
-                                spawn.y};
-                        spawnHeading = std::atan2(
-                            towardCenter.x, -towardCenter.y);
-                        found = true;
-                    }
-                }
-            }
-        }
-    }
-
-    if (!found) {
-        // Keep the corpse in place and retry shortly. A temporary full-screen
-        // drag selection or dense icon layout must never force an unsafe
-        // teleport.
-        stateTimer_ = 0.5f;
-        speed_ = 0.0f;
-        desiredSpeed_ = 0.0f;
-        return;
-    }
-
-    position_ = spawn;
-    heading_ = spawnHeading;
-    desiredHeading_ = heading_;
-    speed_ = 0.0f;
-    pendingFleeDirection_ = {};
-    obstacleEscapeDirection_ = {};
-    recoveryDirection_ = {};
-    obstacleEscapeTimer_ = 0.0f;
-    recoveryTimer_ = 0.0f;
-    blockedMotionTimer_ = 0.0f;
-    edgeDwellTimer_ = 0.0f;
-    threatCooldown_ = 1.25f;
-    threatLatched_ = false;
-    shelterTimer_ = randomRange(16.0f, 34.0f);
-    ++respawnCount_;
-    transitionTo(CockroachBehaviorState::Wander);
-}
-
 void Cockroach::transitionTo(CockroachBehaviorState state,
                              Vec2 direction) {
     state_ = state;
@@ -423,20 +270,6 @@ void Cockroach::transitionTo(CockroachBehaviorState state,
         obstacleEscapeTimer_ = 0.0f;
         recoveryTimer_ = 0.0f;
         break;
-    case CockroachBehaviorState::SlapTargeted:
-        stateTimer_ = 0.45f;
-        desiredSpeed_ = 0.0f;
-        speed_ = 0.0f;
-        break;
-    case CockroachBehaviorState::Dead:
-        stateTimer_ = 10.0f;
-        desiredSpeed_ = 0.0f;
-        speed_ = 0.0f;
-        obstacleEscapeTimer_ = 0.0f;
-        recoveryTimer_ = 0.0f;
-        blockedMotionTimer_ = 0.0f;
-        edgeDwellTimer_ = 0.0f;
-        break;
     case CockroachBehaviorState::Startled:
         stateTimer_ = randomRange(0.055f, 0.12f);
         desiredSpeed_ = 0.0f;
@@ -486,38 +319,8 @@ void Cockroach::updateBehavior(
         state_ != CockroachBehaviorState::Lurk &&
         state_ != CockroachBehaviorState::Groom &&
         state_ != CockroachBehaviorState::SeekFood &&
-        state_ != CockroachBehaviorState::Feeding &&
-        state_ != CockroachBehaviorState::SlapTargeted &&
-        state_ != CockroachBehaviorState::Dead) {
+        state_ != CockroachBehaviorState::Feeding) {
         shelterTimer_ -= dt;
-    }
-
-    if (state_ == CockroachBehaviorState::Dead) {
-        if (stateTimer_ <= 0.0f) {
-            respawn(obstacles);
-        }
-        return;
-    }
-
-    if (settings_.enableExtendedBehaviors &&
-        input.slipperStrikeStarted &&
-        input.slipperHitBody) {
-        slipperTargetPosition_ = input.slipperPosition;
-        transitionTo(CockroachBehaviorState::SlapTargeted);
-    }
-    if (settings_.enableExtendedBehaviors &&
-        input.slipperImpact) {
-        if (input.slipperHitBody ||
-            state_ == CockroachBehaviorState::SlapTargeted) {
-            transitionTo(CockroachBehaviorState::Dead);
-            return;
-        }
-        if (length(position_ - input.slipperPosition) <=
-            settings_.bodyLength * 2.5f) {
-            transitionTo(
-                CockroachBehaviorState::Startled,
-                position_ - input.slipperPosition);
-        }
     }
 
     const Vec2 cursorDelta =
@@ -554,8 +357,7 @@ void Cockroach::updateBehavior(
     if (input.cursorValid && threatDetected &&
         !threatLatched_ && threatCooldown_ <= 0.0f &&
         state_ != CockroachBehaviorState::Flee &&
-        state_ != CockroachBehaviorState::Startled &&
-        state_ != CockroachBehaviorState::SlapTargeted) {
+        state_ != CockroachBehaviorState::Startled) {
         threatLatched_ = true;
         transitionTo(CockroachBehaviorState::Startled, cursorDelta);
     }
@@ -667,11 +469,6 @@ void Cockroach::updateBehavior(
                 shelterTimer_ = randomRange(12.0f, 24.0f);
                 transitionTo(CockroachBehaviorState::Wander);
             }
-        } else if (state_ ==
-                   CockroachBehaviorState::SlapTargeted) {
-            transitionTo(
-                CockroachBehaviorState::Startled,
-                position_ - slipperTargetPosition_);
         } else {
             chooseRoamingBehavior(0.18f, 0.34f);
         }
@@ -706,11 +503,6 @@ void Cockroach::updateWithInput(
         std::max(0.0f, obstacleEscapeTimer_ - dt);
     recoveryTimer_ = std::max(0.0f, recoveryTimer_ - dt);
     updateBehavior(dt, input, obstacles);
-    if (state_ == CockroachBehaviorState::Dead ||
-        state_ == CockroachBehaviorState::SlapTargeted) {
-        speed_ = 0.0f;
-        return;
-    }
 
     Vec2 direction = normalized(target_ - position_);
     if (state_ == CockroachBehaviorState::Pause ||
@@ -1385,11 +1177,8 @@ void Cockroach::renderAt(SDL_Renderer* renderer,
     const float bodyLength = settings_.bodyLength;
     const float normalizedPace =
         std::max(1.0f, settings_.speedMultiplier * 200.0f);
-    const bool dead =
-        state_ == CockroachBehaviorState::Dead;
     const float motionAmount =
-        dead ? 0.0f
-             : clampf(speed_ / normalizedPace, 0.0f, 1.0f);
+        clampf(speed_ / normalizedPace, 0.0f, 1.0f);
     const float bob =
         std::sin(gaitClock_ * 2.0f) * 0.55f * motionAmount;
     const float sway =
@@ -1428,8 +1217,6 @@ void Cockroach::renderAt(SDL_Renderer* renderer,
         animationMode = CockroachAnimationMode::Grooming;
     } else if (state_ == CockroachBehaviorState::Feeding) {
         animationMode = CockroachAnimationMode::Feeding;
-    } else if (dead) {
-        animationMode = CockroachAnimationMode::Dead;
     }
     const CockroachAnimationPose animation =
         calculateCockroachAnimation(
@@ -1492,30 +1279,16 @@ void Cockroach::renderAt(SDL_Renderer* renderer,
     SDL_SetTextureAlphaMod(partsTexture.texture, 38);
     const Vec2 shadowOffset{3.0f, 5.0f};
     renderAppendages(shadowOffset);
-    if (dead) {
-        renderSpritePartScaled(
-            renderer, partsTexture, partAt(CockroachPart::Body),
-            bodyCenter + shadowOffset, spriteScale * 1.24f,
-            spriteScale * 0.58f, poseHeading);
-    } else {
-        renderSpritePart(
-            renderer, partsTexture, partAt(CockroachPart::Body),
-            bodyCenter + shadowOffset, spriteScale, poseHeading);
-    }
+    renderSpritePart(
+        renderer, partsTexture, partAt(CockroachPart::Body),
+        bodyCenter + shadowOffset, spriteScale, poseHeading);
 
     SDL_SetTextureAlphaMod(partsTexture.texture, 255);
     SDL_SetTextureColorMod(partsTexture.texture, 190, 190, 190);
     renderAppendages({});
-    if (dead) {
-        renderSpritePartScaled(
-            renderer, partsTexture, partAt(CockroachPart::Body),
-            bodyCenter, spriteScale * 1.24f,
-            spriteScale * 0.58f, poseHeading);
-    } else {
-        renderSpritePart(
-            renderer, partsTexture, partAt(CockroachPart::Body),
-            bodyCenter, spriteScale, poseHeading);
-    }
+    renderSpritePart(
+        renderer, partsTexture, partAt(CockroachPart::Body),
+        bodyCenter, spriteScale, poseHeading);
 }
 
 CockroachBehaviorSnapshot Cockroach::behaviorSnapshot() const {
@@ -1528,22 +1301,5 @@ CockroachBehaviorSnapshot Cockroach::behaviorSnapshot() const {
         std::max(0.0f, stateTimer_),
         stateClock_,
         threatCooldown_,
-        respawnCount_,
-        state_ != CockroachBehaviorState::Dead,
         foodConsumedThisFrame_};
-}
-
-bool Cockroach::hitTestBody(Vec2 screenPoint) const {
-    if (state_ == CockroachBehaviorState::Dead) return false;
-    const Vec2 local =
-        rotateLocal(screenPoint - position_, -heading_);
-    const float halfWidth =
-        std::max(1.0f, settings_.bodyLength * 0.20f);
-    const float halfLength =
-        std::max(1.0f, settings_.bodyLength * 0.43f);
-    const float normalizedX = local.x / halfWidth;
-    const float normalizedY = local.y / halfLength;
-    return normalizedX * normalizedX +
-               normalizedY * normalizedY <=
-           1.0f;
 }

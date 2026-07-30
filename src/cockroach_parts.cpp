@@ -83,8 +83,7 @@ CockroachAnimationPose calculateCockroachAnimation(
 
     if (mode == CockroachAnimationMode::Lurking ||
         mode == CockroachAnimationMode::Grooming ||
-        mode == CockroachAnimationMode::Feeding ||
-        mode == CockroachAnimationMode::Dead) {
+        mode == CockroachAnimationMode::Feeding) {
         for (CockroachAppendagePose& leg : pose.legs) {
             leg.rotation = 0.0f;
             leg.jointOffset = {};
@@ -150,21 +149,6 @@ CockroachAnimationPose calculateCockroachAnimation(
             0.45f;
         pose.antennae[indexOf(CockroachAntenna::Right)].rotation *=
             0.45f;
-    } else if (mode == CockroachAnimationMode::Dead) {
-        constexpr std::array<float, 6> deadLegDegrees{
-            58.0f, -58.0f, 70.0f, -70.0f, 48.0f, -48.0f};
-        for (std::size_t leg = 0; leg < pose.legs.size(); ++leg) {
-            pose.legs[leg].rotation =
-                deadLegDegrees[leg] * degreesToRadians;
-            pose.legs[leg].jointOffset = {
-                (leg % 2 == 0 ? -1.0f : 1.0f) *
-                    bodyLength * 0.018f,
-                bodyLength * 0.010f};
-        }
-        pose.antennae[indexOf(CockroachAntenna::Left)].rotation =
-            42.0f * degreesToRadians;
-        pose.antennae[indexOf(CockroachAntenna::Right)].rotation =
-            -42.0f * degreesToRadians;
     }
     return pose;
 }
