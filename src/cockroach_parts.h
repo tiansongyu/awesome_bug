@@ -64,7 +64,8 @@ struct CockroachAnimationPose {
 enum class CockroachAnimationMode {
     Normal,
     Lurking,
-    Grooming
+    Grooming,
+    Dead
 };
 
 const std::array<CockroachPartDefinition,

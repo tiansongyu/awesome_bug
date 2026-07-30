@@ -352,6 +352,20 @@ bool OverlayWindow::presentAt(int screenX, int screenY) {
 #endif
 }
 
+void OverlayWindow::hide() {
+    if (!window_) return;
+#if defined(_WIN32)
+    if (native_ && native_->hwnd) {
+        ShowWindow(native_->hwnd, SW_HIDE);
+    } else {
+        SDL_HideWindow(window_);
+    }
+#else
+    SDL_HideWindow(window_);
+#endif
+    shown_ = false;
+}
+
 void OverlayWindow::finishFrame() {
 }
 

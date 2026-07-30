@@ -16,6 +16,7 @@ set(COCKROACH_SOURCES
     src/desktop_icons.cpp
     src/overlay_window.cpp
     src/png_loader.cpp
+    src/windows_interaction.cpp
 )
 
 function(add_cockroach_executable target_name default_count)

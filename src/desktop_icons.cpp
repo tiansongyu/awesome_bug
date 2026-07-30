@@ -287,7 +287,7 @@ struct DesktopIconTracker::Impl {
         }
     }
 
-    void update(Vec2 cursor) {
+    void update(Vec2 cursor, bool allowDrag) {
         if (!connectToExplorer() || !desktopIsForeground()) {
             obstacles.clear();
             wasDesktopActive = false;
@@ -305,14 +305,24 @@ struct DesktopIconTracker::Impl {
                 // Explorer can briefly stop responding while it rearranges or
                 // redraws desktop icons. Keep the last valid rectangles for
                 // that frame instead of opening a collision-free gap.
-                updateDrag(cursor);
+                if (allowDrag) {
+                    updateDrag(cursor);
+                } else {
+                    wasLeftButtonDown = false;
+                    resetDrag();
+                }
                 publishObstacles(cursor);
                 return;
             }
             lastRefresh = now;
         }
         wasDesktopActive = true;
-        updateDrag(cursor);
+        if (allowDrag) {
+            updateDrag(cursor);
+        } else {
+            wasLeftButtonDown = false;
+            resetDrag();
+        }
         publishObstacles(cursor);
     }
 #elif defined(__linux__)
@@ -846,7 +856,7 @@ struct DesktopIconTracker::Impl {
         }
     }
 
-    void update(Vec2 cursor) {
+    void update(Vec2 cursor, bool allowDrag) {
         if (!display || !atspiReady) {
             obstacles.clear();
             return;
@@ -887,7 +897,12 @@ struct DesktopIconTracker::Impl {
         }
 
         wasDesktopActive = true;
-        updateDrag(cursor);
+        if (allowDrag) {
+            updateDrag(cursor);
+        } else {
+            wasLeftButtonDown = false;
+            resetDrag();
+        }
         publishObstacles(cursor);
     }
 #else
@@ -902,8 +917,9 @@ DesktopIconTracker::DesktopIconTracker()
 
 DesktopIconTracker::~DesktopIconTracker() = default;
 
-void DesktopIconTracker::update(Vec2 cursorScreenPosition) {
-    impl_->update(cursorScreenPosition);
+void DesktopIconTracker::update(
+    Vec2 cursorScreenPosition, bool allowDrag) {
+    impl_->update(cursorScreenPosition, allowDrag);
 }
 
 const std::vector<ScreenObstacle>& DesktopIconTracker::obstacles() const {

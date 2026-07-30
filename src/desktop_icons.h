@@ -21,7 +21,7 @@ public:
     DesktopIconTracker(const DesktopIconTracker&) = delete;
     DesktopIconTracker& operator=(const DesktopIconTracker&) = delete;
 
-    void update(Vec2 cursorScreenPosition);
+    void update(Vec2 cursorScreenPosition, bool allowDrag = true);
     const std::vector<ScreenObstacle>& obstacles() const;
 
 private:

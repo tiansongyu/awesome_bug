@@ -262,6 +262,102 @@ int main() {
         }
     }
 
+    // Slipper hit testing uses only the rotated torso ellipse. A locked hit
+    // freezes the target, becomes a ten-second corpse at impact, and respawns
+    // exactly once at a safe screen edge.
+    {
+        const RoachSettings extendedSettings{165.0f, 3.0f, true};
+        Cockroach roach(
+            desktop, 290, extendedSettings,
+            {640.0f, 376.0f}, 424242u);
+        const auto initial = roach.behaviorSnapshot();
+        const Vec2 insideBody =
+            initial.position +
+            rotateLocal(
+                {0.0f, extendedSettings.bodyLength * 0.30f},
+                initial.heading);
+        const Vec2 legOnlyArea =
+            initial.position +
+            rotateLocal(
+                {extendedSettings.bodyLength * 0.31f, 0.0f},
+                initial.heading);
+        if (!roach.hitTestBody(initial.position) ||
+            !roach.hitTestBody(insideBody) ||
+            roach.hitTestBody(legOnlyArea)) {
+            std::cerr << "body-only slipper hit test failed\n";
+            failed = true;
+        }
+
+        CockroachBehaviorInput input;
+        input.cursorValid = false;
+        input.slipperStrikeStarted = true;
+        input.slipperHitBody = true;
+        input.slipperPosition = initial.position;
+        roach.updateWithInput(1.0f / 60.0f, input, {});
+        if (roach.behaviorSnapshot().state !=
+            CockroachBehaviorState::SlapTargeted) {
+            std::cerr << "locked slipper hit did not freeze target\n";
+            failed = true;
+        }
+
+        input.slipperStrikeStarted = false;
+        input.slipperImpact = true;
+        roach.updateWithInput(1.0f / 60.0f, input, {});
+        input.slipperImpact = false;
+        if (roach.behaviorSnapshot().state !=
+                CockroachBehaviorState::Dead ||
+            roach.behaviorSnapshot().alive) {
+            std::cerr << "slipper impact did not kill target\n";
+            failed = true;
+        }
+
+        const Vec2 corpsePosition = roach.screenCenter();
+        for (int halfSecond = 0; halfSecond < 19; ++halfSecond) {
+            roach.updateWithInput(0.5f, input, {});
+        }
+        roach.updateWithInput(0.49f, input, {});
+        if (roach.behaviorSnapshot().state !=
+                CockroachBehaviorState::Dead ||
+            length(roach.screenCenter() - corpsePosition) > 0.001f ||
+            roach.behaviorSnapshot().respawnCount != 0) {
+            std::cerr << "corpse moved or respawned before ten seconds\n";
+            failed = true;
+        }
+
+        roach.updateWithInput(0.02f, input, {});
+        const auto respawned = roach.behaviorSnapshot();
+        if (!respawned.alive ||
+            respawned.state == CockroachBehaviorState::Dead ||
+            respawned.respawnCount != 1 ||
+            length(respawned.position - corpsePosition) < 20.0f ||
+            respawned.position.x < desktop.x ||
+            respawned.position.x > desktop.x + desktop.w ||
+            respawned.position.y < desktop.y ||
+            respawned.position.y > desktop.y + desktop.h) {
+            std::cerr << "ten-second respawn failed\n";
+            failed = true;
+        }
+    }
+
+    // A slipper miss does not kill the animal; the impact startles it away.
+    {
+        const RoachSettings extendedSettings{165.0f, 3.0f, true};
+        Cockroach roach(
+            desktop, 290, extendedSettings,
+            {640.0f, 376.0f}, 424243u);
+        CockroachBehaviorInput input;
+        input.cursorValid = false;
+        input.slipperImpact = true;
+        input.slipperHitBody = false;
+        input.slipperPosition = {520.0f, 376.0f};
+        roach.updateWithInput(1.0f / 60.0f, input, {});
+        if (roach.behaviorSnapshot().state !=
+            CockroachBehaviorState::Startled) {
+            std::cerr << "missed slipper did not startle target\n";
+            failed = true;
+        }
+    }
+
     // Place one static or moving icon directly over the torso at every screen
     // region. The pet must leave it promptly, keep moving and never teleport.
     for (std::size_t trial = 0; trial < initialPositions.size(); ++trial) {

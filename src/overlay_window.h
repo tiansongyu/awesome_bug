@@ -24,6 +24,7 @@ public:
     int height() const;
 
     bool presentAt(int screenX, int screenY);
+    void hide();
     void finishFrame();
     bool quitHotkeyPressed() const;
 

@@ -4,6 +4,7 @@
 #include "display_scale.h"
 #include "overlay_window.h"
 #include "png_loader.h"
+#include "windows_interaction.h"
 
 #include <SDL.h>
 
@@ -317,6 +318,25 @@ int main(int argc, char** argv) {
         std::uniform_real_distribution<float> sizeScale(0.52f, 1.02f);
         std::uniform_real_distribution<float> speedScale(0.82f, 1.18f);
         DesktopIconTracker desktopIcons;
+        const bool windowsSinglePet =
+#if defined(_WIN32)
+            options.count == 1;
+#else
+            false;
+#endif
+        WindowsInteractionController interaction(windowsSinglePet);
+        std::unique_ptr<OverlayWindow> interactionOverlay;
+        if (windowsSinglePet) {
+            interactionOverlay = std::make_unique<OverlayWindow>(
+                WindowsInteractionController::overlaySize,
+                false);
+            if (!interactionOverlay->valid()) {
+                showError(
+                    "Cannot create Windows interaction overlay: " +
+                    interactionOverlay->error());
+                return 1;
+            }
+        }
 
         bool sharedCanvas = false;
 #if defined(__linux__)
@@ -431,7 +451,8 @@ int main(int argc, char** argv) {
             while (SDL_PollEvent(&event)) {
                 if (event.type == SDL_QUIT) running = false;
                 if (event.type == SDL_KEYDOWN &&
-                    (event.key.keysym.sym == SDLK_ESCAPE ||
+                    ((event.key.keysym.sym == SDLK_ESCAPE &&
+                      !interaction.slipperMode()) ||
                      event.key.keysym.sym == SDLK_q)) {
                     running = false;
                 }
@@ -474,7 +495,27 @@ int main(int argc, char** argv) {
             }
             previousCursor = cursor;
             havePreviousCursor = true;
-            desktopIcons.update(cursor);
+            const SlipperInteractionEvents interactionEvents =
+                interaction.update(dt, cursor);
+            if (interactionEvents.strikeStarted) {
+                const bool hit =
+                    instances.front()->roach->hitTestBody(
+                        interactionEvents.strikePosition);
+                interaction.setStrikeHitBody(hit);
+                behaviorInput.slipperStrikeStarted = true;
+                behaviorInput.slipperHitBody = hit;
+                behaviorInput.slipperPosition =
+                    interactionEvents.strikePosition;
+            }
+            if (interactionEvents.strikeImpact) {
+                behaviorInput.slipperImpact = true;
+                behaviorInput.slipperHitBody =
+                    interaction.strikeHitBody();
+                behaviorInput.slipperPosition =
+                    interactionEvents.strikePosition;
+            }
+            desktopIcons.update(
+                cursor, !interaction.capturesMouse());
             if (sharedCanvas) {
                 SDL_SetRenderDrawBlendMode(sharedOverlay->renderer(),
                                            SDL_BLENDMODE_NONE);
@@ -516,6 +557,15 @@ int main(int argc, char** argv) {
                 running = false;
             } else if (!sharedCanvas && !instances.empty()) {
                 instances.front()->overlay->finishFrame();
+            }
+            if (interactionOverlay &&
+                !interaction.render(
+                    *interactionOverlay, cursor)) {
+                showError(
+                    std::string(
+                        "Interaction overlay presentation failed: ") +
+                    SDL_GetError());
+                running = false;
             }
 
             ++frameCount;

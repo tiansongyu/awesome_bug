@@ -9,6 +9,8 @@ enum class CockroachBehaviorState {
     SeekCorner,
     Lurk,
     Groom,
+    SlapTargeted,
+    Dead,
     Startled,
     Flee
 };
@@ -18,6 +20,10 @@ struct CockroachBehaviorInput {
     Vec2 cursorVelocity;
     bool cursorValid = true;
     bool requestCornerRest = false;
+    bool slipperStrikeStarted = false;
+    bool slipperImpact = false;
+    bool slipperHitBody = false;
+    Vec2 slipperPosition;
 };
 
 struct CockroachBehaviorSnapshot {
@@ -29,6 +35,8 @@ struct CockroachBehaviorSnapshot {
     float stateTimeRemaining = 0.0f;
     float stateElapsed = 0.0f;
     float threatCooldown = 0.0f;
+    unsigned int respawnCount = 0;
+    bool alive = true;
 };
 
 const char* cockroachBehaviorStateName(CockroachBehaviorState state);
