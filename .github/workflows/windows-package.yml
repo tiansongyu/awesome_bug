@@ -1,0 +1,102 @@
+name: Windows x64 package
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-package-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows-x64:
+    name: Build Windows x64 ZIP
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install cross-compilation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            binutils-mingw-w64-x86-64 \
+            ca-certificates \
+            cmake \
+            curl \
+            g++-mingw-w64-x86-64 \
+            libz-mingw-w64-dev \
+            make \
+            unzip
+
+      - name: Cache dependency archives
+        uses: actions/cache@v5
+        with:
+          path: build-windows-deps/downloads
+          key: windows-deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/build-windows.sh') }}
+
+      - name: Build Windows package
+        run: ./scripts/build-windows.sh
+
+      - name: Verify ZIP package
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="dist/cockroach-overlay-windows-x64.zip"
+          test -s "${archive}"
+          unzip -t "${archive}"
+
+          for executable in \
+            dist/windows-x64/cockroach_overlay.exe \
+            dist/windows-x64/cockroach_swarm_20.exe; do
+            x86_64-w64-mingw32-objdump -f "${executable}" |
+              grep -F "file format pei-x86-64" > /dev/null
+            x86_64-w64-mingw32-objdump -x "${executable}" |
+              grep -F "(Windows GUI)" > /dev/null
+            x86_64-w64-mingw32-objdump -h "${executable}" |
+              grep -F ".rsrc" > /dev/null
+          done
+
+          for entry in \
+            windows-x64/cockroach_overlay.exe \
+            windows-x64/cockroach_swarm_20.exe \
+            windows-x64/SDL2.dll \
+            windows-x64/assets/cockroach_parts_atlas.png \
+            windows-x64/README.txt; do
+            test -s "dist/${entry}"
+            unzip -Z1 "${archive}" "${entry}" |
+              grep -Fx "${entry}" > /dev/null
+            unzip -p "${archive}" "${entry}" | cmp - "dist/${entry}"
+          done
+
+          sha256="$(sha256sum "${archive}" | cut -d ' ' -f 1)"
+          echo "sha256=${sha256}" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload Windows ZIP
+        id: upload
+        uses: actions/upload-artifact@v7
+        with:
+          path: dist/cockroach-overlay-windows-x64.zip
+          archive: false
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Add download link to summary
+        run: |
+          {
+            echo "### Windows x64 package"
+            echo
+            echo "- [Download cockroach-overlay-windows-x64.zip](${{ steps.upload.outputs.artifact-url }})"
+            echo "- SHA-256: \`${{ steps.package.outputs.sha256 }}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
