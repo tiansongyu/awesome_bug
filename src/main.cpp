@@ -1,4 +1,5 @@
 #include "cockroach.h"
+#include "cockroach_parts.h"
 #include "desktop_icons.h"
 #include "display_scale.h"
 #include "overlay_window.h"
@@ -74,7 +75,7 @@ void printUsage(const char* programName) {
         << "  --display N           SDL display index (default 0)\n"
         << "  --count N             number of cockroaches (1..50, default "
         << COCKROACH_DEFAULT_COUNT << ")\n"
-        << "  --asset PATH          alternate transparent body PNG\n"
+        << "  --asset PATH          alternate compatible parts-sheet PNG\n"
         << "  --no-click-through    let the overlay receive mouse input\n"
         << "  --frames N            exit after N frames (useful for testing)\n"
         << "  --help                 show this help\n\n"
@@ -176,13 +177,14 @@ std::string locateAsset(const Options& options) {
     std::vector<fs::path> candidates;
     if (char* basePath = SDL_GetBasePath()) {
         const fs::path base(basePath);
-        candidates.push_back(base / "assets" / "cockroach_full.png");
+        candidates.push_back(
+            base / "assets" / "cockroach_parts_atlas.png");
         candidates.push_back(
             base / ".." / "share" / "cockroach-overlay" /
-            "assets" / "cockroach_full.png");
+            "assets" / "cockroach_parts_atlas.png");
         SDL_free(basePath);
     }
-    candidates.emplace_back("assets/cockroach_full.png");
+    candidates.emplace_back("assets/cockroach_parts_atlas.png");
 #ifdef COCKROACH_SOURCE_ASSET
     candidates.emplace_back(COCKROACH_SOURCE_ASSET);
 #endif
@@ -192,7 +194,7 @@ std::string locateAsset(const Options& options) {
             return fs::absolute(candidate, ec).string();
         }
     }
-    return candidates.empty() ? "assets/cockroach_full.png"
+    return candidates.empty() ? "assets/cockroach_parts_atlas.png"
                               : candidates.front().string();
 }
 
@@ -204,14 +206,19 @@ void showError(const std::string& message) {
 
 struct RoachInstance {
     std::unique_ptr<OverlayWindow> overlay;
-    LoadedTexture body;
+    LoadedTexture parts;
     std::unique_ptr<Cockroach> roach;
     int overlaySize = 0;
 
     ~RoachInstance() {
-        if (body.texture) SDL_DestroyTexture(body.texture);
+        if (parts.texture) SDL_DestroyTexture(parts.texture);
     }
 };
+
+bool isCompatiblePartsSheet(const LoadedTexture& texture) {
+    return texture.imageWidth == cockroachSheetWidth &&
+           texture.imageHeight == cockroachSheetHeight;
+}
 
 std::vector<Vec2> makeSpawnPoints(SDL_Rect desktop, int count,
                                   std::mt19937& rng) {
@@ -316,7 +323,7 @@ int main(int argc, char** argv) {
         sharedCanvas = options.count > 1;
 #endif
         std::unique_ptr<OverlayWindow> sharedOverlay;
-        LoadedTexture sharedBody;
+        LoadedTexture sharedParts;
         if (sharedCanvas) {
             sharedOverlay = std::make_unique<OverlayWindow>(
                 desktop.w, desktop.h, options.clickThrough, false);
@@ -326,10 +333,16 @@ int main(int argc, char** argv) {
                 return 1;
             }
             std::string textureError;
-            sharedBody = loadPngTexture(
+            sharedParts = loadPngTexture(
                 sharedOverlay->renderer(), assetPath, textureError);
-            if (!sharedBody.texture) {
+            if (!sharedParts.texture) {
                 showError(textureError);
+                return 1;
+            }
+            if (!isCompatiblePartsSheet(sharedParts)) {
+                showError(
+                    "The parts sheet must be 1536x1024 pixels: " +
+                    assetPath);
                 return 1;
             }
         }
@@ -345,7 +358,7 @@ int main(int argc, char** argv) {
                 options.speed *
                 (options.count == 1 ? 1.0f : speedScale(spawnRng));
             const int overlaySize = static_cast<int>(
-                std::ceil(std::max(180.0f, bodySize * 1.75f)));
+                std::ceil(std::max(210.0f, bodySize * 2.15f)));
 
             auto instance = std::make_unique<RoachInstance>();
             instance->overlaySize = overlaySize;
@@ -360,24 +373,22 @@ int main(int argc, char** argv) {
                 }
 
                 std::string textureError;
-                instance->body = loadPngTexture(
+                instance->parts = loadPngTexture(
                     instance->overlay->renderer(), assetPath, textureError);
-                if (!instance->body.texture) {
+                if (!instance->parts.texture) {
                     showError(textureError);
                     return 1;
                 }
+                if (!isCompatiblePartsSheet(instance->parts)) {
+                    showError(
+                        "The parts sheet must be 1536x1024 pixels: " +
+                        assetPath);
+                    return 1;
+                }
             }
-            const LoadedTexture& collisionTexture =
-                sharedCanvas ? sharedBody : instance->body;
-            const float spriteAspect =
-                collisionTexture.visibleBounds.h > 0
-                    ? collisionTexture.visibleBounds.w /
-                          static_cast<float>(
-                              collisionTexture.visibleBounds.h)
-                    : 0.67f;
             instance->roach = std::make_unique<Cockroach>(
                 desktop, overlaySize,
-                RoachSettings{bodySize, speed, spriteAspect},
+                RoachSettings{bodySize, speed},
                 spawnPoints[static_cast<std::size_t>(index)]);
             instances.push_back(std::move(instance));
         }
@@ -452,11 +463,11 @@ int main(int argc, char** argv) {
                 const Vec2 center = instance->roach->screenCenter();
                 if (sharedCanvas) {
                     instance->roach->renderAt(
-                        sharedOverlay->renderer(), sharedBody,
+                        sharedOverlay->renderer(), sharedParts,
                         Vec2{center.x - desktop.x, center.y - desktop.y});
                 } else {
                     instance->roach->render(instance->overlay->renderer(),
-                                            instance->body);
+                                            instance->parts);
                     if (!instance->overlay->presentAt(
                             static_cast<int>(std::round(
                                 center.x -
@@ -494,7 +505,7 @@ int main(int argc, char** argv) {
                     (targetFrameTime - elapsed) * 1000.0));
             }
         }
-        if (sharedBody.texture) SDL_DestroyTexture(sharedBody.texture);
+        if (sharedParts.texture) SDL_DestroyTexture(sharedParts.texture);
         return 0;
     }();
     SDL_Quit();

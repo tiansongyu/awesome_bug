@@ -11,7 +11,6 @@
 struct RoachSettings {
     float bodyLength = 165.0f;
     float speedMultiplier = 1.0f;
-    float spriteAspect = 0.67f;
 };
 
 class Cockroach {
@@ -22,8 +21,8 @@ public:
 
     void update(float dt, Vec2 cursorScreenPosition,
                 const std::vector<ScreenObstacle>& obstacles);
-    void render(SDL_Renderer* renderer, const LoadedTexture& bodyTexture);
-    void renderAt(SDL_Renderer* renderer, const LoadedTexture& bodyTexture,
+    void render(SDL_Renderer* renderer, const LoadedTexture& partsTexture);
+    void renderAt(SDL_Renderer* renderer, const LoadedTexture& partsTexture,
                   Vec2 canvasCenter);
 
     Vec2 screenCenter() const { return position_; }
@@ -63,5 +62,4 @@ private:
     void enterStartled(Vec2 awayFromCursor);
     void enterFlee(Vec2 awayFromCursor);
 
-    Vec2 localToCanvas(Vec2 local, Vec2 center) const;
 };

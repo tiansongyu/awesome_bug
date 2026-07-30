@@ -12,6 +12,7 @@ find_package(PNG REQUIRED)
 set(COCKROACH_SOURCES
     src/main.cpp
     src/cockroach.cpp
+    src/cockroach_parts.cpp
     src/desktop_icons.cpp
     src/overlay_window.cpp
     src/png_loader.cpp
@@ -22,7 +23,7 @@ function(add_cockroach_executable target_name default_count)
     target_include_directories(${target_name} PRIVATE src)
     target_compile_definitions(${target_name} PRIVATE
         COCKROACH_DEFAULT_COUNT=${default_count}
-        COCKROACH_SOURCE_ASSET="${CMAKE_CURRENT_SOURCE_DIR}/assets/cockroach_full.png"
+        COCKROACH_SOURCE_ASSET="${CMAKE_CURRENT_SOURCE_DIR}/assets/cockroach_parts_atlas.png"
     )
 
     if(TARGET SDL2::SDL2)
@@ -68,8 +69,8 @@ function(add_cockroach_executable target_name default_count)
         COMMAND ${CMAKE_COMMAND} -E make_directory
                 "$<TARGET_FILE_DIR:${target_name}>/assets"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${CMAKE_CURRENT_SOURCE_DIR}/assets/cockroach_full.png"
-                "$<TARGET_FILE_DIR:${target_name}>/assets/cockroach_full.png"
+                "${CMAKE_CURRENT_SOURCE_DIR}/assets/cockroach_parts_atlas.png"
+                "$<TARGET_FILE_DIR:${target_name}>/assets/cockroach_parts_atlas.png"
     )
 endfunction()
 
@@ -90,6 +91,7 @@ if(BUILD_TESTING)
     add_executable(cockroach_motion_test
         tests/cockroach_motion_test.cpp
         src/cockroach.cpp
+        src/cockroach_parts.cpp
     )
     target_include_directories(cockroach_motion_test PRIVATE src)
     if(TARGET SDL2::SDL2)
@@ -112,10 +114,36 @@ if(BUILD_TESTING)
             -static-libgcc -static-libstdc++)
     endif()
     add_test(NAME cockroach_motion COMMAND cockroach_motion_test)
+
+    add_executable(cockroach_parts_test
+        tests/cockroach_parts_test.cpp
+        src/cockroach_parts.cpp
+    )
+    target_include_directories(cockroach_parts_test PRIVATE src)
+    if(TARGET SDL2::SDL2)
+        target_link_libraries(cockroach_parts_test PRIVATE SDL2::SDL2)
+    else()
+        target_include_directories(cockroach_parts_test
+            PRIVATE ${SDL2_INCLUDE_DIRS})
+        target_link_libraries(cockroach_parts_test
+            PRIVATE ${SDL2_LIBRARIES})
+    endif()
+    if(MSVC)
+        target_compile_options(cockroach_parts_test
+            PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(cockroach_parts_test
+            PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+    if(MINGW)
+        target_link_options(cockroach_parts_test PRIVATE
+            -static-libgcc -static-libstdc++)
+    endif()
+    add_test(NAME cockroach_parts COMMAND cockroach_parts_test)
 endif()
 
 install(TARGETS cockroach_overlay cockroach_swarm_20 RUNTIME DESTINATION bin)
-install(FILES assets/cockroach_full.png
+install(FILES assets/cockroach_parts_atlas.png
         DESTINATION share/cockroach-overlay/assets)
 if(UNIX AND NOT APPLE)
     install(FILES packaging/UBUNTU-README.txt

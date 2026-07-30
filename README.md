@@ -5,9 +5,10 @@
 ## 效果与行为
 
 - SDL2 渲染，透明、无边框、置顶、任务栏隐藏、默认鼠标穿透。
-- 使用用户指定的高细节背甲为基础补全的正俯视渲染图，包含完整六足、足刺、复眼和双触角。
+- 使用高细节正俯视组件图：身体、六条腿与两根触须是 9 个独立精灵。
 - 蟑螂可见区域完全不透明，只有周围背景透明；运行时会适度压低 RGB 亮度。
-- 通过随速度变化的微幅横摆、身体轻晃、速度脉冲、快速转向和横向碎步表现爬行感。
+- 六足使用交替三足步态（左前+右中+左后 / 右前+左中+右后），每条腿另有独立的微小相位变化；两根触须使用不同频率和相位探测，低速或停顿时摆幅增大，逃跑时收窄。
+- 通过随速度变化的步幅、微幅横摆、身体轻晃、速度脉冲和快速转向表现爬行感。
 - 以快速巡游为主，偶尔切换到带有轻微踌躇和柔和转向的低速潜行，再自然加速；另有长短停顿、受惊前瞬间僵停和突然冲刺。
 - Windows 默认以 1920×1080 下 165 像素身体长度为基准，按当前显示器完整分辨率自动缩放；`--size` 可覆盖自动结果。
 - 鼠标靠近时会快速向反方向逃跑。
@@ -53,7 +54,7 @@ cmake --build build-win --config Release
 .\build-win\Release\cockroach_overlay.exe
 ```
 
-CMake 会把 `assets/cockroach_full.png` 自动复制到可执行文件旁边的 `assets` 目录。
+CMake 会把 `assets/cockroach_parts_atlas.png` 自动复制到可执行文件旁边的 `assets` 目录。
 
 也可以在 Ubuntu / Debian 上直接交叉编译 Windows x64 版本：
 
@@ -89,7 +90,7 @@ cockroach_overlay [options]
   --speed N             速度倍率，0.25..3
   --display N           显示器编号，从 0 开始
   --count N             蟑螂数量，1..50
-  --asset PATH          使用另一张透明 PNG 主体素材
+  --asset PATH          使用另一张兼容的 1536×1024 组件图
   --no-click-through    关闭鼠标穿透，便于调试
   --frames N            渲染 N 帧后退出，便于自动测试
   --help                查看帮助
@@ -113,8 +114,10 @@ cockroach_swarm_20      20 只、随机大小与分区随机初始位置
 ## 工程结构
 
 ```text
-assets/cockroach_full.png  补全器官的正俯视、不透明完整蟑螂
-src/cockroach.cpp          移动状态机与 SDL2 绘制
+assets/cockroach_parts_atlas.png  身体、六足、双触须的运行时组件图
+assets/cockroach_parts/           九张可单独检查或替换的透明 PNG
+src/cockroach.cpp                 移动状态机与 SDL2 组合绘制
+src/cockroach_parts.cpp           组件坐标、三足步态与双触须动作
 src/desktop_icons.cpp      Windows Explorer / Ubuntu DING 图标与拖拽跟踪
 src/overlay_window.cpp     Windows / X11 透明置顶窗口
 src/png_loader.cpp         基于 libpng 的 RGBA 纹理加载

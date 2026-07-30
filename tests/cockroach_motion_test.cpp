@@ -46,7 +46,7 @@ int main() {
     }
 
     const SDL_Rect desktop{0, 0, 1280, 752};
-    const RoachSettings settings{165.0f, 3.0f, 0.67f};
+    const RoachSettings settings{165.0f, 3.0f};
     const std::vector<Vec2> initialPositions{
         {72.0f, 72.0f},
         {1208.0f, 72.0f},

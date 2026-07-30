@@ -99,8 +99,8 @@ install -m 0755 "${windows_build_dir}/cockroach_swarm_20.exe" \
     "${package_dir}/cockroach_swarm_20.exe"
 install -m 0755 "${sdl_prefix}/bin/SDL2.dll" \
     "${package_dir}/SDL2.dll"
-install -m 0644 "${project_dir}/assets/cockroach_full.png" \
-    "${package_dir}/assets/cockroach_full.png"
+install -m 0644 "${project_dir}/assets/cockroach_parts_atlas.png" \
+    "${package_dir}/assets/cockroach_parts_atlas.png"
 install -m 0644 "${project_dir}/packaging/WINDOWS-README.txt" \
     "${package_dir}/README.txt"
 

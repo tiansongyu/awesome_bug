@@ -1,4 +1,5 @@
 #include "cockroach.h"
+#include "cockroach_parts.h"
 
 #include <algorithm>
 #include <chrono>
@@ -55,6 +56,23 @@ Vec2 bodyCollisionExtents(const RoachSettings& settings, float heading) {
     return {
         headingSin * halfLength + headingCos * halfWidth,
         headingCos * halfLength + headingSin * halfWidth};
+}
+
+void renderSpritePart(SDL_Renderer* renderer,
+                      const LoadedTexture& sheet,
+                      const CockroachPartDefinition& part,
+                      Vec2 joint, float scale, float angle) {
+    const SDL_FRect destination{
+        joint.x - part.pivot.x * scale,
+        joint.y - part.pivot.y * scale,
+        part.source.w * scale,
+        part.source.h * scale};
+    const SDL_FPoint pivot{
+        part.pivot.x * scale,
+        part.pivot.y * scale};
+    SDL_RenderCopyExF(
+        renderer, sheet.texture, &part.source, &destination,
+        angle * 180.0 / pi, &pivot, SDL_FLIP_NONE);
 }
 } // namespace
 
@@ -812,70 +830,116 @@ void Cockroach::update(
     gaitClock_ += dt * cyclesPerSecond * 2.0f * pi;
 }
 
-Vec2 Cockroach::localToCanvas(Vec2 local, Vec2 center) const {
-    return center + rotateLocal(local, heading_);
-}
-
 void Cockroach::render(SDL_Renderer* renderer,
-                       const LoadedTexture& bodyTexture) {
+                       const LoadedTexture& partsTexture) {
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
     SDL_RenderClear(renderer);
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
-    renderAt(renderer, bodyTexture,
+    renderAt(renderer, partsTexture,
              Vec2{overlaySize_ * 0.5f, overlaySize_ * 0.5f});
 }
 
 void Cockroach::renderAt(SDL_Renderer* renderer,
-                         const LoadedTexture& bodyTexture,
+                         const LoadedTexture& partsTexture,
                          Vec2 canvasCenter) {
     const float bodyLength = settings_.bodyLength;
-    const float visibleAspect = bodyTexture.visibleBounds.h > 0
-                                    ? bodyTexture.visibleBounds.w /
-                                          static_cast<float>(
-                                              bodyTexture.visibleBounds.h)
-                                    : 0.58f;
-    // The completed dorsal sprite includes the full antenna sweep. Its
-    // head-to-abdomen length occupies about 86% of the visible texture height.
-    const float spriteHeight = bodyLength * 1.16f;
-    const float spriteWidth = spriteHeight * visibleAspect;
-    const float motionAmount = clampf(speed_ / 170.0f, 0.0f, 1.0f);
+    const float normalizedPace =
+        std::max(1.0f, settings_.speedMultiplier * 200.0f);
+    const float motionAmount =
+        clampf(speed_ / normalizedPace, 0.0f, 1.0f);
     const float bob =
-        std::sin(gaitClock_ * 2.0f) * 0.75f * motionAmount;
+        std::sin(gaitClock_ * 2.0f) * 0.55f * motionAmount;
     const float sway =
-        (std::sin(gaitClock_) * 1.85f +
-         std::sin(gaitClock_ * 2.7f) * 0.25f) *
+        (std::sin(gaitClock_) * 1.15f +
+         std::sin(gaitClock_ * 2.7f) * 0.20f) *
         motionAmount;
-    const Vec2 localCenter{canvasCenter.x + sway, canvasCenter.y + bob};
-
-    SDL_Rect destination{
-        static_cast<int>(std::round(localCenter.x - spriteWidth * 0.5f)),
-        static_cast<int>(std::round(localCenter.y - spriteHeight * 0.5f)),
-        std::max(1, static_cast<int>(std::round(spriteWidth))),
-        std::max(1, static_cast<int>(std::round(spriteHeight)))};
-    SDL_Point pivot{destination.w / 2, destination.h / 2};
-    // Keep every visible sprite pixel fully opaque while reducing only RGB
-    // brightness. The transparent desktop area remains controlled by the
-    // texture's binary alpha mask.
-    SDL_SetTextureAlphaMod(bodyTexture.texture, 255);
-    SDL_SetTextureColorMod(bodyTexture.texture, 190, 190, 190);
-    const float strideRock =
+    const float strideRockDegrees =
         (std::sin(gaitClock_ * 2.0f) * 1.05f +
          std::sin(gaitClock_ * 0.55f) * 0.22f) *
         motionAmount;
-    SDL_Rect shadowDestination = destination;
-    shadowDestination.x += 3;
-    shadowDestination.y += 5;
-    SDL_SetTextureColorMod(bodyTexture.texture, 0, 0, 0);
-    SDL_SetTextureAlphaMod(bodyTexture.texture, 38);
-    SDL_RenderCopyEx(renderer, bodyTexture.texture, &bodyTexture.visibleBounds,
-                     &shadowDestination,
-                     heading_ * 180.0 / pi + strideRock, &pivot,
-                     SDL_FLIP_NONE);
+    const float poseHeading =
+        heading_ + strideRockDegrees * pi / 180.0f;
+    const Vec2 bodyCenter =
+        canvasCenter + rotateLocal({sway, bob}, poseHeading);
 
-    SDL_SetTextureAlphaMod(bodyTexture.texture, 255);
-    SDL_SetTextureColorMod(bodyTexture.texture, 190, 190, 190);
-    SDL_RenderCopyEx(renderer, bodyTexture.texture, &bodyTexture.visibleBounds,
-                     &destination, heading_ * 180.0 / pi + strideRock,
-                     &pivot, SDL_FLIP_NONE);
+    float probingAmount = 0.42f;
+    if (state_ == MotionState::Pause || state_ == MotionState::Creep) {
+        probingAmount = 1.0f;
+    } else if (state_ == MotionState::Startled) {
+        probingAmount = 0.22f;
+    } else if (state_ == MotionState::Flee) {
+        probingAmount = 0.08f;
+    }
+    const CockroachAnimationPose animation =
+        calculateCockroachAnimation(
+            gaitClock_, behaviorClock_, bodyLength,
+            motionAmount, probingAmount);
+    const auto& parts = cockroachPartDefinitions();
+    const float spriteScale =
+        bodyLength / cockroachBodySourceLength;
+
+    const auto partAt = [&parts](CockroachPart part)
+        -> const CockroachPartDefinition& {
+        return parts[static_cast<std::size_t>(part)];
+    };
+    const auto jointFor =
+        [&](const CockroachPartDefinition& part,
+            const CockroachAppendagePose& pose,
+            Vec2 screenOffset) {
+            const Vec2 localJoint =
+                part.attachment * bodyLength + pose.jointOffset;
+            return bodyCenter +
+                   rotateLocal(localJoint, poseHeading) +
+                   screenOffset;
+        };
+    const auto renderAppendages =
+        [&](Vec2 screenOffset) {
+            constexpr std::array<CockroachPart, 6> legParts{
+                CockroachPart::LeftFrontLeg,
+                CockroachPart::RightFrontLeg,
+                CockroachPart::LeftMiddleLeg,
+                CockroachPart::RightMiddleLeg,
+                CockroachPart::LeftRearLeg,
+                CockroachPart::RightRearLeg};
+            for (std::size_t index = 0;
+                 index < legParts.size(); ++index) {
+                const auto& part = partAt(legParts[index]);
+                const auto& pose = animation.legs[index];
+                renderSpritePart(
+                    renderer, partsTexture, part,
+                    jointFor(part, pose, screenOffset),
+                    spriteScale, poseHeading + pose.rotation);
+            }
+
+            constexpr std::array<CockroachPart, 2> antennaParts{
+                CockroachPart::LeftAntenna,
+                CockroachPart::RightAntenna};
+            for (std::size_t index = 0;
+                 index < antennaParts.size(); ++index) {
+                const auto& part = partAt(antennaParts[index]);
+                const auto& pose = animation.antennae[index];
+                renderSpritePart(
+                    renderer, partsTexture, part,
+                    jointFor(part, pose, screenOffset),
+                    spriteScale, poseHeading + pose.rotation);
+            }
+        };
+
+    // Draw all appendages behind the opaque body. The shadow is a separate
+    // visual layer; the cockroach pixels themselves always use alpha 255.
+    SDL_SetTextureColorMod(partsTexture.texture, 0, 0, 0);
+    SDL_SetTextureAlphaMod(partsTexture.texture, 38);
+    const Vec2 shadowOffset{3.0f, 5.0f};
+    renderAppendages(shadowOffset);
+    renderSpritePart(
+        renderer, partsTexture, partAt(CockroachPart::Body),
+        bodyCenter + shadowOffset, spriteScale, poseHeading);
+
+    SDL_SetTextureAlphaMod(partsTexture.texture, 255);
+    SDL_SetTextureColorMod(partsTexture.texture, 190, 190, 190);
+    renderAppendages({});
+    renderSpritePart(
+        renderer, partsTexture, partAt(CockroachPart::Body),
+        bodyCenter, spriteScale, poseHeading);
 }
