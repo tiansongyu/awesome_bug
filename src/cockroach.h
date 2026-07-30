@@ -43,6 +43,8 @@ private:
     Vec2 position_;
     Vec2 target_;
     Vec2 pendingFleeDirection_;
+    Vec2 slipperTargetPosition_;
+    Vec2 feedingBaitPosition_;
     Vec2 obstacleEscapeDirection_;
     float heading_ = 0.0f;
     float desiredHeading_ = 0.0f;

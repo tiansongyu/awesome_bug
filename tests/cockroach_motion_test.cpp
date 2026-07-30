@@ -179,6 +179,39 @@ int main() {
         }
     }
 
+    // An explicit corner-rest request must enter the visible resting cycle
+    // within 30 seconds. The request is an edge-triggered command; it is not
+    // held high while the animal travels to the selected corner.
+    {
+        const RoachSettings extendedSettings{165.0f, 3.0f, true};
+        Cockroach roach(
+            desktop, 290, extendedSettings,
+            {640.0f, 376.0f}, 90211u);
+        CockroachBehaviorInput input;
+        input.cursorValid = false;
+        input.requestCornerRest = true;
+        roach.updateWithInput(1.0f / 60.0f, input, {});
+        input.requestCornerRest = false;
+
+        bool reachedRestingCycle = false;
+        for (int frame = 0; frame < 1800; ++frame) {
+            const CockroachBehaviorState state =
+                roach.behaviorSnapshot().state;
+            if (state == CockroachBehaviorState::Lurk ||
+                state == CockroachBehaviorState::Groom) {
+                reachedRestingCycle = true;
+                break;
+            }
+            roach.updateWithInput(1.0f / 60.0f, input, {});
+        }
+        if (!reachedRestingCycle) {
+            std::cerr
+                << "explicit corner-rest request did not reach rest cycle "
+                   "within 30 seconds\n";
+            failed = true;
+        }
+    }
+
     // Extended threat sensing ignores a slow distant cursor, but a fast
     // approach triggers a short freeze followed by a burst away from it.
     {
@@ -226,6 +259,60 @@ int main() {
             escapeDisplacement.y * awayFromCursor.y;
         if (!enteredFlee || escapeProjection < 20.0f) {
             std::cerr << "startled roach did not burst away from cursor\n";
+            failed = true;
+        }
+    }
+
+    // The startled reaction is a real freeze, not merely a request to
+    // decelerate. Build up a non-zero cruising speed first, then verify that
+    // the body remains at the alarm position until the Flee transition.
+    {
+        const RoachSettings extendedSettings{165.0f, 3.0f, true};
+        Cockroach roach(
+            desktop, 290, extendedSettings,
+            {640.0f, 376.0f}, 779u);
+        CockroachBehaviorInput input;
+        input.cursorValid = false;
+        bool reachedCruisingSpeed = false;
+        for (int frame = 0; frame < 600; ++frame) {
+            roach.updateWithInput(1.0f / 60.0f, input, {});
+            const auto snapshot = roach.behaviorSnapshot();
+            if (snapshot.state == CockroachBehaviorState::Wander &&
+                snapshot.speed > 120.0f) {
+                reachedCruisingSpeed = true;
+                break;
+            }
+        }
+
+        const Vec2 alarmPosition = roach.screenCenter();
+        input.cursorValid = true;
+        input.cursorScreenPosition = alarmPosition + Vec2{10.0f, 0.0f};
+        input.cursorVelocity = {};
+        roach.updateWithInput(1.0f / 60.0f, input, {});
+        bool frozeUntilFlee =
+            reachedCruisingSpeed &&
+            roach.behaviorSnapshot().state ==
+                CockroachBehaviorState::Startled &&
+            length(roach.screenCenter() - alarmPosition) <= 0.01f;
+
+        input.cursorValid = false;
+        for (int frame = 0;
+             frame < 12 &&
+             roach.behaviorSnapshot().state ==
+                 CockroachBehaviorState::Startled;
+             ++frame) {
+            roach.updateWithInput(1.0f / 60.0f, input, {});
+            if (roach.behaviorSnapshot().state ==
+                    CockroachBehaviorState::Startled &&
+                length(roach.screenCenter() - alarmPosition) > 0.01f) {
+                frozeUntilFlee = false;
+            }
+        }
+        if (!frozeUntilFlee ||
+            roach.behaviorSnapshot().state !=
+                CockroachBehaviorState::Flee) {
+            std::cerr
+                << "startled state did not freeze a moving roach until flee\n";
             failed = true;
         }
     }
@@ -339,6 +426,60 @@ int main() {
         }
     }
 
+    // If every edge candidate is occupied but the desktop center is clear,
+    // the ten-second respawn must use a verified fallback instead of accepting
+    // the final colliding random edge sample.
+    {
+        const RoachSettings extendedSettings{165.0f, 3.0f, true};
+        Cockroach roach(
+            desktop, 290, extendedSettings,
+            {640.0f, 376.0f}, 424244u);
+        const std::vector<ScreenObstacle> blockedEdges{
+            {0.0f, 0.0f, 1280.0f, 200.0f, false},
+            {0.0f, 552.0f, 1280.0f, 200.0f, false},
+            {0.0f, 0.0f, 200.0f, 752.0f, false},
+            {1080.0f, 0.0f, 200.0f, 752.0f, false}};
+
+        CockroachBehaviorInput input;
+        input.cursorValid = false;
+        input.slipperStrikeStarted = true;
+        input.slipperHitBody = true;
+        input.slipperPosition = roach.screenCenter();
+        roach.updateWithInput(
+            1.0f / 60.0f, input, blockedEdges);
+        input.slipperStrikeStarted = false;
+        input.slipperImpact = true;
+        roach.updateWithInput(
+            1.0f / 60.0f, input, blockedEdges);
+        input.slipperImpact = false;
+
+        for (int halfSecond = 0; halfSecond < 19; ++halfSecond) {
+            roach.updateWithInput(0.5f, input, blockedEdges);
+        }
+        roach.updateWithInput(0.49f, input, blockedEdges);
+        roach.updateWithInput(0.02f, input, blockedEdges);
+
+        const auto respawned = roach.behaviorSnapshot();
+        const float safeExtent =
+            extendedSettings.bodyLength *
+                std::sqrt(0.43f * 0.43f + 0.20f * 0.20f) +
+            4.0f;
+        bool clearOfBlockedEdges = true;
+        for (const ScreenObstacle& obstacle : blockedEdges) {
+            clearOfBlockedEdges &=
+                outsideExpanded(
+                    respawned.position, obstacle, safeExtent);
+        }
+        if (!respawned.alive ||
+            respawned.respawnCount != 1 ||
+            !clearOfBlockedEdges) {
+            std::cerr
+                << "respawn did not find the clear center fallback when "
+                   "all edge candidates were blocked\n";
+            failed = true;
+        }
+    }
+
     // A slipper miss does not kill the animal; the impact startles it away.
     {
         const RoachSettings extendedSettings{165.0f, 3.0f, true};
@@ -354,6 +495,27 @@ int main() {
         if (roach.behaviorSnapshot().state !=
             CockroachBehaviorState::Startled) {
             std::cerr << "missed slipper did not startle target\n";
+            failed = true;
+        }
+    }
+
+    // A missed slipper strike only startles within the local impact radius.
+    // A miss in the opposite desktop corner must leave the current behavior
+    // intact.
+    {
+        const RoachSettings extendedSettings{165.0f, 3.0f, true};
+        Cockroach roach(
+            desktop, 290, extendedSettings,
+            {640.0f, 376.0f}, 424245u);
+        CockroachBehaviorInput input;
+        input.cursorValid = false;
+        input.slipperImpact = true;
+        input.slipperHitBody = false;
+        input.slipperPosition = {20.0f, 20.0f};
+        roach.updateWithInput(1.0f / 60.0f, input, {});
+        if (roach.behaviorSnapshot().state ==
+            CockroachBehaviorState::Startled) {
+            std::cerr << "distant missed slipper caused a false alarm\n";
             failed = true;
         }
     }
@@ -415,6 +577,45 @@ int main() {
             roach.behaviorSnapshot().state ==
                 CockroachBehaviorState::Feeding) {
             std::cerr << "food consumption event was not one-shot\n";
+            failed = true;
+        }
+    }
+
+    // Moving the only active bait while feeding invalidates the old feeding
+    // location. The animal must seek the new position and must not emit a
+    // consumption event for food it has not reached.
+    {
+        const RoachSettings extendedSettings{165.0f, 3.0f, true};
+        Cockroach roach(
+            desktop, 290, extendedSettings,
+            {640.0f, 376.0f}, 515153u);
+        CockroachBehaviorInput input;
+        input.cursorValid = false;
+        input.baitActive = true;
+        input.baitPosition = roach.screenCenter();
+        roach.updateWithInput(1.0f / 60.0f, input, {});
+        if (roach.behaviorSnapshot().state !=
+            CockroachBehaviorState::Feeding) {
+            std::cerr << "nearby bait did not enter feeding state\n";
+            failed = true;
+        }
+
+        input.baitPosition = {1120.0f, 650.0f};
+        roach.updateWithInput(1.0f / 60.0f, input, {});
+        bool consumedMovedBait =
+            roach.behaviorSnapshot().foodConsumed;
+        const bool returnedToSeek =
+            roach.behaviorSnapshot().state ==
+            CockroachBehaviorState::SeekFood;
+        for (int frame = 0; frame < 60; ++frame) {
+            roach.updateWithInput(1.0f / 60.0f, input, {});
+            consumedMovedBait |=
+                roach.behaviorSnapshot().foodConsumed;
+        }
+        if (!returnedToSeek || consumedMovedBait) {
+            std::cerr
+                << "moving bait during feeding did not resume seeking "
+                   "without consumption\n";
             failed = true;
         }
     }

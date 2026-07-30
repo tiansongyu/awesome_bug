@@ -4,7 +4,10 @@
 
 #include <SDL.h>
 
+#include <memory>
+
 class OverlayWindow;
+struct WindowsMouseHookState;
 
 struct SlipperInteractionEvents {
     bool strikeStarted = false;
@@ -16,7 +19,7 @@ struct SlipperInteractionEvents {
 
 class WindowsInteractionController {
 public:
-    explicit WindowsInteractionController(bool enabled);
+    WindowsInteractionController(bool enabled, SDL_Rect workArea);
     ~WindowsInteractionController();
 
     WindowsInteractionController(
@@ -29,7 +32,9 @@ public:
     bool renderBait(OverlayWindow& overlay);
 
     bool slipperMode() const { return slipperMode_; }
-    bool capturesMouse() const { return slipperMode_; }
+    bool capturesMouse() const {
+        return slipperMode_ && cursorInside_;
+    }
     bool swingActive() const { return swingClock_ >= 0.0f; }
     void setStrikeHitBody(bool hit) { strikeHitBody_ = hit; }
     bool strikeHitBody() const { return strikeHitBody_; }
@@ -48,15 +53,19 @@ private:
     bool toggleWasDown_ = false;
     bool escapeWasDown_ = false;
     bool baitWasDown_ = false;
-    bool leftWasDown_ = false;
+    bool cursorInside_ = false;
     float swingClock_ = -1.0f;
     bool impactEmitted_ = false;
     bool strikeHitBody_ = false;
     Vec2 strikePosition_;
     bool baitActive_ = false;
     Vec2 baitPosition_;
-    SDL_Cursor* hiddenCursor_ = nullptr;
-    SDL_Cursor* arrowCursor_ = nullptr;
+    SDL_Rect workArea_{};
+    SDL_Cursor* previousCursor_ = nullptr;
+    int previousCursorVisibility_ = -1;
+    std::unique_ptr<WindowsMouseHookState> mouseHook_;
 
     void setSlipperMode(bool enabled);
+    bool installMouseHook();
+    void uninstallMouseHook();
 };

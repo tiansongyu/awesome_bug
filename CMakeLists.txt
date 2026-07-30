@@ -6,6 +6,12 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+if(MINGW)
+    # Keep tests attached to a console so Wine and CI can display failures.
+    # Application targets remain GUI executables via WIN32_EXECUTABLE.
+    set(SDL2_NO_MWINDOWS ON)
+endif()
+
 find_package(SDL2 REQUIRED)
 find_package(PNG REQUIRED)
 

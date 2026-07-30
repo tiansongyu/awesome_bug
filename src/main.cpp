@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <random>
 #include <string>
 #include <vector>
@@ -80,6 +81,10 @@ void printUsage(const char* programName) {
         << "  --no-click-through    let the overlay receive mouse input\n"
         << "  --frames N            exit after N frames (useful for testing)\n"
         << "  --help                 show this help\n\n"
+        << "Windows single-pet hotkeys:\n"
+        << "  Ctrl+Alt+S            toggle slipper hunt mode\n"
+        << "  Ctrl+Alt+F            place or move food bait\n"
+        << "  Esc                   leave slipper hunt mode\n"
         << "Press Ctrl+Alt+Q to close the running overlay.\n";
 }
 
@@ -265,18 +270,24 @@ std::vector<Vec2> makeSpawnPoints(SDL_Rect desktop, int count,
     return result;
 }
 
-Vec2 findSafeBaitPosition(
-    Vec2 requested, SDL_Rect desktop,
+std::optional<Vec2> findSafeBaitPosition(
+    Vec2 requested, SDL_Rect desktop, float bodySize,
     const std::vector<ScreenObstacle>& obstacles) {
-    constexpr float baitRadius = 26.0f;
+    const float baitRadius =
+        std::max(32.0f, bodySize * 0.16f);
+    const float minimumX = desktop.x + baitRadius;
+    const float maximumX =
+        desktop.x + desktop.w - baitRadius;
+    const float minimumY = desktop.y + baitRadius;
+    const float maximumY =
+        desktop.y + desktop.h - baitRadius;
+    if (minimumX > maximumX || minimumY > maximumY) {
+        return std::nullopt;
+    }
     const auto clampToDesktop =
         [&](Vec2 point) {
-        point.x = clampf(
-            point.x, desktop.x + baitRadius,
-            desktop.x + desktop.w - baitRadius);
-        point.y = clampf(
-            point.y, desktop.y + baitRadius,
-            desktop.y + desktop.h - baitRadius);
+        point.x = clampf(point.x, minimumX, maximumX);
+        point.y = clampf(point.y, minimumY, maximumY);
         return point;
     };
     const auto isClear =
@@ -298,18 +309,47 @@ Vec2 findSafeBaitPosition(
     if (isClear(requested)) return requested;
 
     constexpr float pi = 3.14159265358979323846f;
-    for (int ring = 1; ring <= 8; ++ring) {
-        const float radius = static_cast<float>(ring) * 24.0f;
-        for (int sample = 0; sample < 16; ++sample) {
+    const float ringStep = std::max(24.0f, baitRadius * 0.75f);
+    for (int ring = 1; ring <= 14; ++ring) {
+        const float radius = static_cast<float>(ring) * ringStep;
+        for (int sample = 0; sample < 24; ++sample) {
             const float angle =
-                2.0f * pi * static_cast<float>(sample) / 16.0f;
+                2.0f * pi * static_cast<float>(sample) / 24.0f;
             const Vec2 candidate = clampToDesktop(
                 requested +
                 Vec2{std::cos(angle), std::sin(angle)} * radius);
             if (isClear(candidate)) return candidate;
         }
     }
-    return requested;
+
+    // Dense icon layouts can block all local rings. Scan the complete work
+    // area before declining the request; never place bait at a blocked
+    // fallback where the torso cannot reach it.
+    constexpr int columns = 25;
+    constexpr int rows = 15;
+    std::optional<Vec2> best;
+    float bestDistance = 1.0e30f;
+    for (int row = 0; row < rows; ++row) {
+        for (int column = 0; column < columns; ++column) {
+            const Vec2 candidate{
+                minimumX +
+                    (maximumX - minimumX) *
+                        (static_cast<float>(column) + 0.5f) /
+                        static_cast<float>(columns),
+                minimumY +
+                    (maximumY - minimumY) *
+                        (static_cast<float>(row) + 0.5f) /
+                        static_cast<float>(rows)};
+            if (!isClear(candidate)) continue;
+            const float candidateDistance =
+                length(candidate - requested);
+            if (candidateDistance < bestDistance) {
+                best = candidate;
+                bestDistance = candidateDistance;
+            }
+        }
+    }
+    return best;
 }
 } // namespace
 
@@ -371,7 +411,8 @@ int main(int argc, char** argv) {
 #else
             false;
 #endif
-        WindowsInteractionController interaction(windowsSinglePet);
+        WindowsInteractionController interaction(
+            windowsSinglePet, desktop);
         std::unique_ptr<OverlayWindow> interactionOverlay;
         std::unique_ptr<OverlayWindow> baitOverlay;
         if (windowsSinglePet) {
@@ -574,9 +615,14 @@ int main(int argc, char** argv) {
             desktopIcons.update(
                 cursor, !interaction.capturesMouse());
             if (interactionEvents.baitPlacementRequested) {
-                interaction.placeBait(findSafeBaitPosition(
-                    interactionEvents.baitPosition, desktop,
-                    desktopIcons.obstacles()));
+                const std::optional<Vec2> safeBait =
+                    findSafeBaitPosition(
+                        interactionEvents.baitPosition, desktop,
+                        options.bodySize,
+                        desktopIcons.obstacles());
+                if (safeBait) {
+                    interaction.placeBait(*safeBait);
+                }
             }
             behaviorInput.baitActive = interaction.baitActive();
             behaviorInput.baitPosition = interaction.baitPosition();
