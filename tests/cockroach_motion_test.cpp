@@ -55,6 +55,60 @@ int main() {
         {640.0f, 376.0f}};
     bool failed = false;
 
+    // A fixed seed makes behavior transitions reproducible without exposing
+    // mutating test hooks in the production state machine.
+    {
+        Cockroach first(
+            desktop, 290, settings, {640.0f, 376.0f}, 0xC0FFEEu);
+        Cockroach second(
+            desktop, 290, settings, {640.0f, 376.0f}, 0xC0FFEEu);
+        CockroachBehaviorInput input;
+        input.cursorValid = false;
+        for (int frame = 0; frame < 1200; ++frame) {
+            first.updateWithInput(1.0f / 60.0f, input, {});
+            second.updateWithInput(1.0f / 60.0f, input, {});
+            const auto left = first.behaviorSnapshot();
+            const auto right = second.behaviorSnapshot();
+            if (left.state != right.state ||
+                length(left.position - right.position) > 0.0001f ||
+                std::abs(left.heading - right.heading) > 0.0001f ||
+                std::abs(left.speed - right.speed) > 0.0001f) {
+                std::cerr
+                    << "fixed-seed behavior is not deterministic at frame "
+                    << frame << '\n';
+                failed = true;
+                break;
+            }
+            if (std::string(cockroachBehaviorStateName(left.state)).empty()) {
+                std::cerr << "behavior state has no readable name\n";
+                failed = true;
+                break;
+            }
+        }
+    }
+
+    // Cursor proximity enters the unified Startled -> Flee transition path.
+    {
+        Cockroach roach(
+            desktop, 290, settings, {640.0f, 376.0f}, 12345u);
+        CockroachBehaviorInput input;
+        input.cursorScreenPosition = {650.0f, 376.0f};
+        roach.updateWithInput(1.0f / 60.0f, input, {});
+        if (roach.behaviorSnapshot().state !=
+            CockroachBehaviorState::Startled) {
+            std::cerr << "near cursor did not enter startled state\n";
+            failed = true;
+        }
+        for (int frame = 0; frame < 12; ++frame) {
+            roach.updateWithInput(1.0f / 60.0f, input, {});
+        }
+        if (roach.behaviorSnapshot().state !=
+            CockroachBehaviorState::Flee) {
+            std::cerr << "startled state did not transition to flee\n";
+            failed = true;
+        }
+    }
+
     // Place one static or moving icon directly over the torso at every screen
     // region. The pet must leave it promptly, keep moving and never teleport.
     for (std::size_t trial = 0; trial < initialPositions.size(); ++trial) {

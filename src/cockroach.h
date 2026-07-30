@@ -1,11 +1,13 @@
 #pragma once
 
+#include "cockroach_behavior.h"
 #include "desktop_icons.h"
 #include "math2d.h"
 #include "png_loader.h"
 
 #include <SDL.h>
 
+#include <optional>
 #include <random>
 
 struct RoachSettings {
@@ -17,19 +19,21 @@ class Cockroach {
 public:
     Cockroach(SDL_Rect desktopBounds, int overlaySize, RoachSettings settings);
     Cockroach(SDL_Rect desktopBounds, int overlaySize, RoachSettings settings,
-              Vec2 initialPosition);
+              Vec2 initialPosition,
+              std::optional<unsigned int> randomSeed = std::nullopt);
 
     void update(float dt, Vec2 cursorScreenPosition,
                 const std::vector<ScreenObstacle>& obstacles);
+    void updateWithInput(float dt, const CockroachBehaviorInput& input,
+                         const std::vector<ScreenObstacle>& obstacles);
     void render(SDL_Renderer* renderer, const LoadedTexture& partsTexture);
     void renderAt(SDL_Renderer* renderer, const LoadedTexture& partsTexture,
                   Vec2 canvasCenter);
 
     Vec2 screenCenter() const { return position_; }
+    CockroachBehaviorSnapshot behaviorSnapshot() const;
 
 private:
-    enum class MotionState { Pause, Creep, Wander, Startled, Flee };
-
     SDL_Rect desktop_;
     int overlaySize_ = 0;
     RoachSettings settings_;
@@ -52,14 +56,13 @@ private:
     float edgeDwellTimer_ = 0.0f;
     float recoveryTimer_ = 0.0f;
     Vec2 recoveryDirection_;
-    MotionState state_ = MotionState::Wander;
+    CockroachBehaviorState state_ = CockroachBehaviorState::Wander;
 
     float randomRange(float low, float high);
     void chooseWanderTarget();
-    void enterWander();
-    void enterCreep();
-    void enterPause();
-    void enterStartled(Vec2 awayFromCursor);
-    void enterFlee(Vec2 awayFromCursor);
-
+    void transitionTo(CockroachBehaviorState state,
+                      Vec2 direction = {});
+    void chooseRoamingBehavior(float pauseThreshold,
+                               float creepThreshold);
+    void updateBehavior(float dt, const CockroachBehaviorInput& input);
 };
