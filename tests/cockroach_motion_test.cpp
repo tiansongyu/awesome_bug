@@ -109,6 +109,76 @@ int main() {
         }
     }
 
+    // Extended single-pet behavior approaches a corner, rests without body
+    // drift, grooms, and finally resumes roaming.
+    {
+        const RoachSettings extendedSettings{165.0f, 3.0f, true};
+        Cockroach roach(
+            desktop, 290, extendedSettings,
+            {640.0f, 376.0f}, 90210u);
+        CockroachBehaviorInput input;
+        input.cursorValid = false;
+        input.requestCornerRest = true;
+        roach.updateWithInput(1.0f / 60.0f, input, {});
+        input.requestCornerRest = false;
+        if (roach.behaviorSnapshot().state !=
+            CockroachBehaviorState::SeekCorner) {
+            std::cerr << "corner-rest request was not accepted\n";
+            failed = true;
+        }
+
+        int reachedLurkFrame = -1;
+        for (int frame = 0; frame < 900; ++frame) {
+            roach.updateWithInput(1.0f / 60.0f, input, {});
+            if (roach.behaviorSnapshot().state ==
+                CockroachBehaviorState::Lurk) {
+                reachedLurkFrame = frame;
+                break;
+            }
+        }
+        if (reachedLurkFrame < 0) {
+            std::cerr << "roach did not reach a corner-rest state\n";
+            failed = true;
+        } else {
+            const Vec2 restingPosition = roach.screenCenter();
+            for (int frame = 0; frame < 180; ++frame) {
+                roach.updateWithInput(1.0f / 60.0f, input, {});
+            }
+            if (roach.behaviorSnapshot().state !=
+                    CockroachBehaviorState::Lurk ||
+                length(roach.screenCenter() - restingPosition) > 0.1f) {
+                std::cerr << "corner-rest body drifted or ended too early\n";
+                failed = true;
+            }
+        }
+
+        bool groomed = false;
+        bool resumed = false;
+        for (int frame = 0; frame < 1200; ++frame) {
+            const Vec2 before = roach.screenCenter();
+            roach.updateWithInput(1.0f / 60.0f, input, {});
+            const auto snapshot = roach.behaviorSnapshot();
+            if (snapshot.state == CockroachBehaviorState::Groom) {
+                groomed = true;
+                if (length(roach.screenCenter() - before) > 0.01f) {
+                    std::cerr << "grooming moved the body\n";
+                    failed = true;
+                    break;
+                }
+            }
+            if (groomed &&
+                (snapshot.state == CockroachBehaviorState::Wander ||
+                 snapshot.state == CockroachBehaviorState::Creep)) {
+                resumed = true;
+                break;
+            }
+        }
+        if (!groomed || !resumed) {
+            std::cerr << "corner-rest grooming cycle did not complete\n";
+            failed = true;
+        }
+    }
+
     // Place one static or moving icon directly over the torso at every screen
     // region. The pet must leave it promptly, keep moving and never teleport.
     for (std::size_t trial = 0; trial < initialPositions.size(); ++trial) {

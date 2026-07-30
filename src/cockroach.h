@@ -13,6 +13,7 @@
 struct RoachSettings {
     float bodyLength = 165.0f;
     float speedMultiplier = 1.0f;
+    bool enableExtendedBehaviors = false;
 };
 
 class Cockroach {
@@ -47,6 +48,7 @@ private:
     float speed_ = 0.0f;
     float desiredSpeed_ = 0.0f;
     float stateTimer_ = 0.0f;
+    float stateClock_ = 0.0f;
     float gaitClock_ = 0.0f;
     float behaviorClock_ = 0.0f;
     float steeringPhase_ = 0.0f;
@@ -55,14 +57,20 @@ private:
     float blockedMotionTimer_ = 0.0f;
     float edgeDwellTimer_ = 0.0f;
     float recoveryTimer_ = 0.0f;
+    float shelterTimer_ = 0.0f;
+    bool groomedDuringRest_ = false;
     Vec2 recoveryDirection_;
     CockroachBehaviorState state_ = CockroachBehaviorState::Wander;
 
     float randomRange(float low, float high);
     void chooseWanderTarget();
+    void chooseCornerTarget(
+        const std::vector<ScreenObstacle>& obstacles);
     void transitionTo(CockroachBehaviorState state,
                       Vec2 direction = {});
     void chooseRoamingBehavior(float pauseThreshold,
                                float creepThreshold);
-    void updateBehavior(float dt, const CockroachBehaviorInput& input);
+    void updateBehavior(
+        float dt, const CockroachBehaviorInput& input,
+        const std::vector<ScreenObstacle>& obstacles);
 };

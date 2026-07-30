@@ -61,10 +61,18 @@ struct CockroachAnimationPose {
         antennae;
 };
 
+enum class CockroachAnimationMode {
+    Normal,
+    Lurking,
+    Grooming
+};
+
 const std::array<CockroachPartDefinition,
                  static_cast<std::size_t>(CockroachPart::Count)>&
 cockroachPartDefinitions();
 
 CockroachAnimationPose calculateCockroachAnimation(
     float gaitClock, float behaviorClock, float bodyLength,
-    float motionAmount, float probingAmount);
+    float motionAmount, float probingAmount,
+    CockroachAnimationMode mode = CockroachAnimationMode::Normal,
+    float actionClock = 0.0f);

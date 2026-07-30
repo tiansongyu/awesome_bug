@@ -37,7 +37,8 @@ cockroachPartDefinitions() {
 
 CockroachAnimationPose calculateCockroachAnimation(
     float gaitClock, float behaviorClock, float bodyLength,
-    float motionAmount, float probingAmount) {
+    float motionAmount, float probingAmount,
+    CockroachAnimationMode mode, float actionClock) {
     CockroachAnimationPose pose;
     motionAmount = clampf(motionAmount, 0.0f, 1.0f);
     probingAmount = clampf(probingAmount, 0.0f, 1.0f);
@@ -80,6 +81,14 @@ CockroachAnimationPose calculateCockroachAnimation(
             -std::cos(phase) * reach};
     }
 
+    if (mode == CockroachAnimationMode::Lurking ||
+        mode == CockroachAnimationMode::Grooming) {
+        for (CockroachAppendagePose& leg : pose.legs) {
+            leg.rotation = 0.0f;
+            leg.jointOffset = {};
+        }
+    }
+
     // Each antenna probes independently. Slower/paused animals use a wider
     // search arc; fleeing animals pull their antennae into a smaller sweep.
     const float antennaRange =
@@ -103,5 +112,30 @@ CockroachAnimationPose calculateCockroachAnimation(
     pose.antennae[indexOf(CockroachAntenna::Right)].jointOffset = {
         feelerShift * std::sin(behaviorClock * 2.87f + 1.10f),
         feelerShift * std::sin(behaviorClock * 4.07f + 1.90f)};
+
+    if (mode == CockroachAnimationMode::Grooming) {
+        // Front legs alternately comb the antenna sockets. A smooth duty
+        // cycle keeps one leg planted while the other reaches forward.
+        const float leftStroke =
+            0.5f + 0.5f * std::sin(actionClock * 5.4f);
+        const float rightStroke =
+            0.5f + 0.5f * std::sin(actionClock * 5.4f + pi);
+        pose.legs[0].rotation =
+            (18.0f + leftStroke * 34.0f) * degreesToRadians;
+        pose.legs[1].rotation =
+            -(18.0f + rightStroke * 34.0f) * degreesToRadians;
+        pose.legs[0].jointOffset = {
+            bodyLength * leftStroke * 0.018f,
+            -bodyLength * leftStroke * 0.030f};
+        pose.legs[1].jointOffset = {
+            -bodyLength * rightStroke * 0.018f,
+            -bodyLength * rightStroke * 0.030f};
+
+        const float comb = std::sin(actionClock * 5.4f);
+        pose.antennae[indexOf(CockroachAntenna::Left)].rotation +=
+            (8.0f + 7.0f * comb) * degreesToRadians;
+        pose.antennae[indexOf(CockroachAntenna::Right)].rotation -=
+            (8.0f - 7.0f * comb) * degreesToRadians;
+    }
     return pose;
 }

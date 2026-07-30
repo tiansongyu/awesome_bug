@@ -388,7 +388,14 @@ int main(int argc, char** argv) {
             }
             instance->roach = std::make_unique<Cockroach>(
                 desktop, overlaySize,
-                RoachSettings{bodySize, speed},
+                RoachSettings{
+                    bodySize, speed,
+#if defined(_WIN32)
+                    options.count == 1
+#else
+                    false
+#endif
+                },
                 spawnPoints[static_cast<std::size_t>(index)]);
             instances.push_back(std::move(instance));
         }

@@ -84,6 +84,12 @@ const char* cockroachBehaviorStateName(CockroachBehaviorState state) {
         return "creep";
     case CockroachBehaviorState::Wander:
         return "wander";
+    case CockroachBehaviorState::SeekCorner:
+        return "seek-corner";
+    case CockroachBehaviorState::Lurk:
+        return "lurk";
+    case CockroachBehaviorState::Groom:
+        return "groom";
     case CockroachBehaviorState::Startled:
         return "startled";
     case CockroachBehaviorState::Flee:
@@ -125,6 +131,7 @@ Cockroach::Cockroach(SDL_Rect desktopBounds, int overlaySize,
     behaviorClock_ = randomRange(0.0f, 20.0f);
     steeringPhase_ = randomRange(-pi, pi);
     speedPulsePhase_ = randomRange(-pi, pi);
+    shelterTimer_ = randomRange(16.0f, 34.0f);
     transitionTo(CockroachBehaviorState::Wander);
 }
 
@@ -149,9 +156,54 @@ void Cockroach::chooseWanderTarget() {
                     desktop_.y + desktop_.h - marginY)};
 }
 
+void Cockroach::chooseCornerTarget(
+    const std::vector<ScreenObstacle>& obstacles) {
+    const float halfLength = settings_.bodyLength * 0.43f;
+    const float halfWidth = settings_.bodyLength * 0.20f;
+    const float safeExtent =
+        std::sqrt(halfLength * halfLength + halfWidth * halfWidth);
+    const float margin = safeExtent + 12.0f;
+    const std::array<Vec2, 4> corners{{
+        {desktop_.x + margin, desktop_.y + margin},
+        {desktop_.x + desktop_.w - margin, desktop_.y + margin},
+        {desktop_.x + margin, desktop_.y + desktop_.h - margin},
+        {desktop_.x + desktop_.w - margin,
+         desktop_.y + desktop_.h - margin},
+    }};
+
+    const int first =
+        static_cast<int>(randomRange(0.0f, 3.999f));
+    float bestScore = 1.0e9f;
+    Vec2 best = corners[static_cast<std::size_t>(first)];
+    for (int offset = 0; offset < 4; ++offset) {
+        const int index = (first + offset) % 4;
+        const Vec2 candidate =
+            corners[static_cast<std::size_t>(index)];
+        bool blocked = false;
+        for (const ScreenObstacle& obstacle : obstacles) {
+            const ExpandedObstacle expanded = expandObstacle(
+                obstacle, safeExtent, safeExtent, 8.0f);
+            if (contains(expanded, candidate)) {
+                blocked = true;
+                break;
+            }
+        }
+        const float score =
+            length(candidate - position_) +
+            (blocked ? desktop_.w + desktop_.h : 0.0f) +
+            static_cast<float>(offset) * 0.01f;
+        if (score < bestScore) {
+            bestScore = score;
+            best = candidate;
+        }
+    }
+    target_ = best;
+}
+
 void Cockroach::transitionTo(CockroachBehaviorState state,
                              Vec2 direction) {
     state_ = state;
+    stateClock_ = 0.0f;
     switch (state_) {
     case CockroachBehaviorState::Wander:
         stateTimer_ = randomRange(0.95f, 4.20f);
@@ -171,6 +223,25 @@ void Cockroach::transitionTo(CockroachBehaviorState state,
             stateTimer_ += randomRange(0.25f, 0.55f);
         }
         desiredSpeed_ = 0.0f;
+        break;
+    case CockroachBehaviorState::SeekCorner:
+        stateTimer_ = randomRange(7.0f, 11.0f);
+        desiredSpeed_ =
+            randomRange(48.0f, 82.0f) * settings_.speedMultiplier;
+        groomedDuringRest_ = false;
+        break;
+    case CockroachBehaviorState::Lurk:
+        stateTimer_ = groomedDuringRest_
+                          ? randomRange(2.0f, 3.8f)
+                          : randomRange(4.5f, 7.5f);
+        desiredSpeed_ = 0.0f;
+        speed_ = 0.0f;
+        break;
+    case CockroachBehaviorState::Groom:
+        stateTimer_ = randomRange(3.2f, 5.2f);
+        desiredSpeed_ = 0.0f;
+        speed_ = 0.0f;
+        groomedDuringRest_ = true;
         break;
     case CockroachBehaviorState::Startled:
         stateTimer_ = randomRange(0.055f, 0.12f);
@@ -205,8 +276,16 @@ void Cockroach::chooseRoamingBehavior(float pauseThreshold,
 }
 
 void Cockroach::updateBehavior(
-    float dt, const CockroachBehaviorInput& input) {
+    float dt, const CockroachBehaviorInput& input,
+    const std::vector<ScreenObstacle>& obstacles) {
     stateTimer_ -= dt;
+    stateClock_ += dt;
+    if (settings_.enableExtendedBehaviors &&
+        state_ != CockroachBehaviorState::SeekCorner &&
+        state_ != CockroachBehaviorState::Lurk &&
+        state_ != CockroachBehaviorState::Groom) {
+        shelterTimer_ -= dt;
+    }
 
     const Vec2 cursorDelta =
         position_ - input.cursorScreenPosition;
@@ -218,6 +297,22 @@ void Cockroach::updateBehavior(
         transitionTo(CockroachBehaviorState::Startled, cursorDelta);
     }
 
+    const bool canSeekShelter =
+        state_ == CockroachBehaviorState::Pause ||
+        state_ == CockroachBehaviorState::Creep ||
+        state_ == CockroachBehaviorState::Wander;
+    if (settings_.enableExtendedBehaviors && canSeekShelter &&
+        (input.requestCornerRest || shelterTimer_ <= 0.0f)) {
+        chooseCornerTarget(obstacles);
+        transitionTo(CockroachBehaviorState::SeekCorner);
+    }
+
+    if (state_ == CockroachBehaviorState::SeekCorner &&
+        length(target_ - position_) <
+            settings_.bodyLength * 0.34f) {
+        transitionTo(CockroachBehaviorState::Lurk);
+    }
+
     if (stateTimer_ <= 0.0f) {
         if (state_ == CockroachBehaviorState::Startled) {
             transitionTo(CockroachBehaviorState::Flee,
@@ -226,6 +321,18 @@ void Cockroach::updateBehavior(
                    state_ == CockroachBehaviorState::Flee ||
                    state_ == CockroachBehaviorState::Creep) {
             transitionTo(CockroachBehaviorState::Wander);
+        } else if (state_ == CockroachBehaviorState::SeekCorner) {
+            shelterTimer_ = randomRange(8.0f, 15.0f);
+            transitionTo(CockroachBehaviorState::Wander);
+        } else if (state_ == CockroachBehaviorState::Lurk) {
+            if (groomedDuringRest_) {
+                shelterTimer_ = randomRange(18.0f, 38.0f);
+                transitionTo(CockroachBehaviorState::Wander);
+            } else {
+                transitionTo(CockroachBehaviorState::Groom);
+            }
+        } else if (state_ == CockroachBehaviorState::Groom) {
+            transitionTo(CockroachBehaviorState::Lurk);
         } else {
             chooseRoamingBehavior(0.18f, 0.34f);
         }
@@ -258,10 +365,12 @@ void Cockroach::updateWithInput(
     obstacleEscapeTimer_ =
         std::max(0.0f, obstacleEscapeTimer_ - dt);
     recoveryTimer_ = std::max(0.0f, recoveryTimer_ - dt);
-    updateBehavior(dt, input);
+    updateBehavior(dt, input, obstacles);
 
     Vec2 direction = normalized(target_ - position_);
     if (state_ == CockroachBehaviorState::Pause ||
+        state_ == CockroachBehaviorState::Lurk ||
+        state_ == CockroachBehaviorState::Groom ||
         state_ == CockroachBehaviorState::Startled) {
         direction = {std::sin(heading_), -std::cos(heading_)};
     }
@@ -288,7 +397,11 @@ void Cockroach::updateWithInput(
     const float nearestEdgeDistance = std::min(
         std::min(leftDistance, rightDistance),
         std::min(topDistance, bottomDistance));
-    if (nearestEdgeDistance < 22.0f) {
+    const bool intentionallyAtCorner =
+        state_ == CockroachBehaviorState::SeekCorner ||
+        state_ == CockroachBehaviorState::Lurk ||
+        state_ == CockroachBehaviorState::Groom;
+    if (!intentionallyAtCorner && nearestEdgeDistance < 22.0f) {
         edgeDwellTimer_ += dt;
     } else {
         edgeDwellTimer_ =
@@ -298,7 +411,7 @@ void Cockroach::updateWithInput(
     if (rightDistance < edgeMargin) edgePush.x -= (edgeMargin - rightDistance) / edgeMargin;
     if (topDistance < edgeMargin) edgePush.y += (edgeMargin - topDistance) / edgeMargin;
     if (bottomDistance < edgeMargin) edgePush.y -= (edgeMargin - bottomDistance) / edgeMargin;
-    if (length(edgePush) > 0.001f) {
+    if (!intentionallyAtCorner && length(edgePush) > 0.001f) {
         const Vec2 inward = normalized(edgePush);
         Vec2 tangent{-inward.y, inward.x};
         const float tangentDot =
@@ -414,7 +527,10 @@ void Cockroach::updateWithInput(
     float turnRate =
         state_ == CockroachBehaviorState::Flee
             ? 8.8f
-            : (state_ == CockroachBehaviorState::Creep ? 3.4f : 4.5f);
+            : ((state_ == CockroachBehaviorState::Creep ||
+                state_ == CockroachBehaviorState::SeekCorner)
+                   ? 3.4f
+                   : 4.5f);
     if (obstacleUrgency > 0.0f) {
         turnRate = std::max(
             turnRate, 5.8f + obstacleUrgency * 4.8f +
@@ -438,7 +554,8 @@ void Cockroach::updateWithInput(
                                 speedPulsePhase_ * 0.61f);
         effectiveDesiredSpeed *=
             0.72f + stridePulse * 0.22f + paceDrift * 0.10f;
-    } else if (state_ == CockroachBehaviorState::Creep) {
+    } else if (state_ == CockroachBehaviorState::Creep ||
+               state_ == CockroachBehaviorState::SeekCorner) {
         const float carefulStep =
             0.5f + 0.5f *
                        std::sin(behaviorClock_ * 3.1f + speedPulsePhase_);
@@ -741,6 +858,7 @@ void Cockroach::updateWithInput(
     const bool commandedToMove =
         state_ == CockroachBehaviorState::Creep ||
         state_ == CockroachBehaviorState::Wander ||
+        state_ == CockroachBehaviorState::SeekCorner ||
         state_ == CockroachBehaviorState::Flee ||
         recoveryTimer_ > 0.0f ||
         obstacleUrgency > 0.25f ||
@@ -759,7 +877,7 @@ void Cockroach::updateWithInput(
     }
 
     if (blockedMotionTimer_ >= 0.16f ||
-        edgeDwellTimer_ >= 0.72f) {
+        (!intentionallyAtCorner && edgeDwellTimer_ >= 0.72f)) {
         const auto collidesWithAnyIcon =
             [&](Vec2 point) {
             for (const ScreenObstacle& obstacle : obstacles) {
@@ -847,6 +965,7 @@ void Cockroach::updateWithInput(
         obstacleEscapeDirection_ = recoveryDirection_;
         obstacleEscapeTimer_ = recoveryTimer_;
         transitionTo(CockroachBehaviorState::Wander);
+        shelterTimer_ = randomRange(8.0f, 15.0f);
         stateTimer_ = randomRange(0.72f, 1.15f);
         desiredSpeed_ =
             randomRange(178.0f, 248.0f) * settings_.speedMultiplier;
@@ -911,11 +1030,21 @@ void Cockroach::renderAt(SDL_Renderer* renderer,
         probingAmount = 0.22f;
     } else if (state_ == CockroachBehaviorState::Flee) {
         probingAmount = 0.08f;
+    } else if (state_ == CockroachBehaviorState::Lurk ||
+               state_ == CockroachBehaviorState::Groom) {
+        probingAmount = 1.0f;
+    }
+    CockroachAnimationMode animationMode =
+        CockroachAnimationMode::Normal;
+    if (state_ == CockroachBehaviorState::Lurk) {
+        animationMode = CockroachAnimationMode::Lurking;
+    } else if (state_ == CockroachBehaviorState::Groom) {
+        animationMode = CockroachAnimationMode::Grooming;
     }
     const CockroachAnimationPose animation =
         calculateCockroachAnimation(
             gaitClock_, behaviorClock_, bodyLength,
-            motionAmount, probingAmount);
+            motionAmount, probingAmount, animationMode, stateClock_);
     const auto& parts = cockroachPartDefinitions();
     const float spriteScale =
         bodyLength / cockroachBodySourceLength;
@@ -992,5 +1121,6 @@ CockroachBehaviorSnapshot Cockroach::behaviorSnapshot() const {
         target_,
         heading_,
         speed_,
-        std::max(0.0f, stateTimer_)};
+        std::max(0.0f, stateTimer_),
+        stateClock_};
 }

@@ -157,5 +157,53 @@ int main() {
         }
     }
 
+    // Lurking freezes all legs while the antennae keep probing. Grooming
+    // alternates the two front legs through a clearly visible combing arc.
+    const auto lurkFirst = calculateCockroachAnimation(
+        1.0f, 1.0f, 165.0f, 0.0f, 1.0f,
+        CockroachAnimationMode::Lurking, 0.0f);
+    const auto lurkSecond = calculateCockroachAnimation(
+        4.0f, 1.2f, 165.0f, 0.0f, 1.0f,
+        CockroachAnimationMode::Lurking, 0.2f);
+    for (std::size_t leg = 0; leg < lurkFirst.legs.size(); ++leg) {
+        if (std::abs(lurkFirst.legs[leg].rotation) > 0.0001f ||
+            std::abs(lurkSecond.legs[leg].rotation) > 0.0001f) {
+            std::cerr << "lurking leg did not stay still: "
+                      << leg << '\n';
+            failed = true;
+        }
+    }
+    if (std::abs(lurkFirst.antennae[0].rotation -
+                 lurkSecond.antennae[0].rotation) < 0.01f &&
+        std::abs(lurkFirst.antennae[1].rotation -
+                 lurkSecond.antennae[1].rotation) < 0.01f) {
+        std::cerr << "lurking antennae stopped probing\n";
+        failed = true;
+    }
+
+    float leftGroomMinimum = 1000.0f;
+    float leftGroomMaximum = -1000.0f;
+    float rightGroomMinimum = 1000.0f;
+    float rightGroomMaximum = -1000.0f;
+    for (int sample = 0; sample < 120; ++sample) {
+        const float time = sample / 60.0f;
+        const auto grooming = calculateCockroachAnimation(
+            0.0f, time, 165.0f, 0.0f, 1.0f,
+            CockroachAnimationMode::Grooming, time);
+        leftGroomMinimum = std::min(
+            leftGroomMinimum, grooming.legs[0].rotation);
+        leftGroomMaximum = std::max(
+            leftGroomMaximum, grooming.legs[0].rotation);
+        rightGroomMinimum = std::min(
+            rightGroomMinimum, grooming.legs[1].rotation);
+        rightGroomMaximum = std::max(
+            rightGroomMaximum, grooming.legs[1].rotation);
+    }
+    if (leftGroomMaximum - leftGroomMinimum < 0.45f ||
+        rightGroomMaximum - rightGroomMinimum < 0.45f) {
+        std::cerr << "front-leg grooming arc is not visible\n";
+        failed = true;
+    }
+
     return failed ? 1 : 0;
 }
