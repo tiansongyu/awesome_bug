@@ -65,6 +65,7 @@ enum class CockroachAnimationMode {
     Normal,
     Lurking,
     Grooming,
+    Feeding,
     Dead
 };
 

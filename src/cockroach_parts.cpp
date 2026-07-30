@@ -83,6 +83,7 @@ CockroachAnimationPose calculateCockroachAnimation(
 
     if (mode == CockroachAnimationMode::Lurking ||
         mode == CockroachAnimationMode::Grooming ||
+        mode == CockroachAnimationMode::Feeding ||
         mode == CockroachAnimationMode::Dead) {
         for (CockroachAppendagePose& leg : pose.legs) {
             leg.rotation = 0.0f;
@@ -137,6 +138,18 @@ CockroachAnimationPose calculateCockroachAnimation(
             (8.0f + 7.0f * comb) * degreesToRadians;
         pose.antennae[indexOf(CockroachAntenna::Right)].rotation -=
             (8.0f - 7.0f * comb) * degreesToRadians;
+    } else if (mode == CockroachAnimationMode::Feeding) {
+        const float nibble =
+            0.5f + 0.5f * std::sin(actionClock * 8.2f);
+        pose.legs[0].rotation =
+            (10.0f + nibble * 12.0f) * degreesToRadians;
+        pose.legs[1].rotation =
+            -(10.0f + (1.0f - nibble) * 12.0f) *
+            degreesToRadians;
+        pose.antennae[indexOf(CockroachAntenna::Left)].rotation *=
+            0.45f;
+        pose.antennae[indexOf(CockroachAntenna::Right)].rotation *=
+            0.45f;
     } else if (mode == CockroachAnimationMode::Dead) {
         constexpr std::array<float, 6> deadLegDegrees{
             58.0f, -58.0f, 70.0f, -70.0f, 48.0f, -48.0f};

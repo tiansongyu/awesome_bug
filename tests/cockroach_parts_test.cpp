@@ -216,5 +216,19 @@ int main() {
         }
     }
 
+    const auto feedingFirst = calculateCockroachAnimation(
+        0.0f, 0.0f, 165.0f, 0.0f, 0.75f,
+        CockroachAnimationMode::Feeding, 0.0f);
+    const auto feedingSecond = calculateCockroachAnimation(
+        0.0f, 0.2f, 165.0f, 0.0f, 0.75f,
+        CockroachAnimationMode::Feeding, 0.2f);
+    if (std::abs(feedingFirst.legs[0].rotation -
+                 feedingSecond.legs[0].rotation) < 0.05f ||
+        std::abs(feedingFirst.legs[2].rotation) > 0.0001f ||
+        std::abs(feedingFirst.legs[4].rotation) > 0.0001f) {
+        std::cerr << "feeding pose did not isolate front legs\n";
+        failed = true;
+    }
+
     return failed ? 1 : 0;
 }

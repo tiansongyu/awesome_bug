@@ -59,10 +59,12 @@ private:
     float edgeDwellTimer_ = 0.0f;
     float recoveryTimer_ = 0.0f;
     float shelterTimer_ = 0.0f;
+    float foodRetryTimer_ = 0.0f;
     float threatCooldown_ = 0.0f;
     bool threatLatched_ = false;
     bool groomedDuringRest_ = false;
     unsigned int respawnCount_ = 0;
+    bool foodConsumedThisFrame_ = false;
     Vec2 recoveryDirection_;
     CockroachBehaviorState state_ = CockroachBehaviorState::Wander;
 

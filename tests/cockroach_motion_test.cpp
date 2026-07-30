@@ -358,6 +358,89 @@ int main() {
         }
     }
 
+    // Food has lower priority than threats but higher priority than optional
+    // resting. The roach approaches, feeds without drifting, consumes the
+    // bait exactly once, and returns to roaming.
+    {
+        const RoachSettings extendedSettings{165.0f, 3.0f, true};
+        Cockroach roach(
+            desktop, 290, extendedSettings,
+            {640.0f, 376.0f}, 515151u);
+        CockroachBehaviorInput input;
+        input.cursorValid = false;
+        input.baitActive = true;
+        input.baitPosition = {1030.0f, 376.0f};
+        const float startingDistance =
+            length(input.baitPosition - roach.screenCenter());
+        roach.updateWithInput(1.0f / 60.0f, input, {});
+        if (roach.behaviorSnapshot().state !=
+            CockroachBehaviorState::SeekFood) {
+            std::cerr << "active bait did not start food seeking\n";
+            failed = true;
+        }
+
+        bool reachedFood = false;
+        for (int frame = 0; frame < 600; ++frame) {
+            roach.updateWithInput(1.0f / 60.0f, input, {});
+            if (roach.behaviorSnapshot().state ==
+                CockroachBehaviorState::Feeding) {
+                reachedFood = true;
+                break;
+            }
+        }
+        if (!reachedFood ||
+            length(input.baitPosition - roach.screenCenter()) >
+                startingDistance * 0.35f) {
+            std::cerr << "roach did not approach food bait\n";
+            failed = true;
+        }
+
+        const Vec2 feedingPosition = roach.screenCenter();
+        int consumedEvents = 0;
+        for (int frame = 0; frame < 300; ++frame) {
+            roach.updateWithInput(1.0f / 60.0f, input, {});
+            const auto snapshot = roach.behaviorSnapshot();
+            if (snapshot.state == CockroachBehaviorState::Feeding &&
+                length(roach.screenCenter() - feedingPosition) > 0.01f) {
+                std::cerr << "feeding body drifted\n";
+                failed = true;
+                break;
+            }
+            if (snapshot.foodConsumed) {
+                ++consumedEvents;
+                input.baitActive = false;
+            }
+        }
+        if (consumedEvents != 1 ||
+            roach.behaviorSnapshot().state ==
+                CockroachBehaviorState::Feeding) {
+            std::cerr << "food consumption event was not one-shot\n";
+            failed = true;
+        }
+    }
+
+    // A rapid cursor approach interrupts food seeking immediately.
+    {
+        const RoachSettings extendedSettings{165.0f, 3.0f, true};
+        Cockroach roach(
+            desktop, 290, extendedSettings,
+            {640.0f, 376.0f}, 515152u);
+        CockroachBehaviorInput input;
+        input.cursorValid = false;
+        input.baitActive = true;
+        input.baitPosition = {1000.0f, 376.0f};
+        roach.updateWithInput(1.0f / 60.0f, input, {});
+        input.cursorValid = true;
+        input.cursorScreenPosition = {900.0f, 376.0f};
+        input.cursorVelocity = {-1000.0f, 0.0f};
+        roach.updateWithInput(1.0f / 60.0f, input, {});
+        if (roach.behaviorSnapshot().state !=
+            CockroachBehaviorState::Startled) {
+            std::cerr << "threat did not interrupt food seeking\n";
+            failed = true;
+        }
+    }
+
     // Place one static or moving icon directly over the torso at every screen
     // region. The pet must leave it promptly, keep moving and never teleport.
     for (std::size_t trial = 0; trial < initialPositions.size(); ++trial) {

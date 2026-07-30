@@ -264,6 +264,53 @@ std::vector<Vec2> makeSpawnPoints(SDL_Rect desktop, int count,
     }
     return result;
 }
+
+Vec2 findSafeBaitPosition(
+    Vec2 requested, SDL_Rect desktop,
+    const std::vector<ScreenObstacle>& obstacles) {
+    constexpr float baitRadius = 26.0f;
+    const auto clampToDesktop =
+        [&](Vec2 point) {
+        point.x = clampf(
+            point.x, desktop.x + baitRadius,
+            desktop.x + desktop.w - baitRadius);
+        point.y = clampf(
+            point.y, desktop.y + baitRadius,
+            desktop.y + desktop.h - baitRadius);
+        return point;
+    };
+    const auto isClear =
+        [&](Vec2 point) {
+        for (const ScreenObstacle& obstacle : obstacles) {
+            if (point.x >= obstacle.x - baitRadius &&
+                point.x <=
+                    obstacle.x + obstacle.width + baitRadius &&
+                point.y >= obstacle.y - baitRadius &&
+                point.y <=
+                    obstacle.y + obstacle.height + baitRadius) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    requested = clampToDesktop(requested);
+    if (isClear(requested)) return requested;
+
+    constexpr float pi = 3.14159265358979323846f;
+    for (int ring = 1; ring <= 8; ++ring) {
+        const float radius = static_cast<float>(ring) * 24.0f;
+        for (int sample = 0; sample < 16; ++sample) {
+            const float angle =
+                2.0f * pi * static_cast<float>(sample) / 16.0f;
+            const Vec2 candidate = clampToDesktop(
+                requested +
+                Vec2{std::cos(angle), std::sin(angle)} * radius);
+            if (isClear(candidate)) return candidate;
+        }
+    }
+    return requested;
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -326,6 +373,7 @@ int main(int argc, char** argv) {
 #endif
         WindowsInteractionController interaction(windowsSinglePet);
         std::unique_ptr<OverlayWindow> interactionOverlay;
+        std::unique_ptr<OverlayWindow> baitOverlay;
         if (windowsSinglePet) {
             interactionOverlay = std::make_unique<OverlayWindow>(
                 WindowsInteractionController::overlaySize,
@@ -334,6 +382,15 @@ int main(int argc, char** argv) {
                 showError(
                     "Cannot create Windows interaction overlay: " +
                     interactionOverlay->error());
+                return 1;
+            }
+            baitOverlay = std::make_unique<OverlayWindow>(
+                WindowsInteractionController::baitOverlaySize,
+                true);
+            if (!baitOverlay->valid()) {
+                showError(
+                    "Cannot create Windows bait overlay: " +
+                    baitOverlay->error());
                 return 1;
             }
         }
@@ -516,6 +573,13 @@ int main(int argc, char** argv) {
             }
             desktopIcons.update(
                 cursor, !interaction.capturesMouse());
+            if (interactionEvents.baitPlacementRequested) {
+                interaction.placeBait(findSafeBaitPosition(
+                    interactionEvents.baitPosition, desktop,
+                    desktopIcons.obstacles()));
+            }
+            behaviorInput.baitActive = interaction.baitActive();
+            behaviorInput.baitPosition = interaction.baitPosition();
             if (sharedCanvas) {
                 SDL_SetRenderDrawBlendMode(sharedOverlay->renderer(),
                                            SDL_BLENDMODE_NONE);
@@ -527,6 +591,11 @@ int main(int argc, char** argv) {
             for (const auto& instance : instances) {
                 instance->roach->updateWithInput(
                     dt, behaviorInput, desktopIcons.obstacles());
+                if (windowsSinglePet &&
+                    instance->roach->behaviorSnapshot()
+                        .foodConsumed) {
+                    interaction.clearBait();
+                }
                 const Vec2 center = instance->roach->screenCenter();
                 if (sharedCanvas) {
                     instance->roach->renderAt(
@@ -557,6 +626,15 @@ int main(int argc, char** argv) {
                 running = false;
             } else if (!sharedCanvas && !instances.empty()) {
                 instances.front()->overlay->finishFrame();
+            }
+            if (interactionOverlay &&
+                baitOverlay &&
+                !interaction.renderBait(*baitOverlay)) {
+                showError(
+                    std::string(
+                        "Bait overlay presentation failed: ") +
+                    SDL_GetError());
+                running = false;
             }
             if (interactionOverlay &&
                 !interaction.render(

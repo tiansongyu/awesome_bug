@@ -114,6 +114,10 @@ const char* cockroachBehaviorStateName(CockroachBehaviorState state) {
         return "lurk";
     case CockroachBehaviorState::Groom:
         return "groom";
+    case CockroachBehaviorState::SeekFood:
+        return "seek-food";
+    case CockroachBehaviorState::Feeding:
+        return "feeding";
     case CockroachBehaviorState::SlapTargeted:
         return "slap-targeted";
     case CockroachBehaviorState::Dead:
@@ -341,6 +345,17 @@ void Cockroach::transitionTo(CockroachBehaviorState state,
         speed_ = 0.0f;
         groomedDuringRest_ = true;
         break;
+    case CockroachBehaviorState::SeekFood:
+        stateTimer_ = randomRange(10.0f, 15.0f);
+        desiredSpeed_ =
+            randomRange(42.0f, 70.0f) *
+            settings_.speedMultiplier;
+        break;
+    case CockroachBehaviorState::Feeding:
+        stateTimer_ = randomRange(2.4f, 3.4f);
+        desiredSpeed_ = 0.0f;
+        speed_ = 0.0f;
+        break;
     case CockroachBehaviorState::SlapTargeted:
         stateTimer_ = 0.45f;
         desiredSpeed_ = 0.0f;
@@ -394,10 +409,14 @@ void Cockroach::updateBehavior(
     stateClock_ += dt;
     threatCooldown_ =
         std::max(0.0f, threatCooldown_ - dt);
+    foodRetryTimer_ =
+        std::max(0.0f, foodRetryTimer_ - dt);
     if (settings_.enableExtendedBehaviors &&
         state_ != CockroachBehaviorState::SeekCorner &&
         state_ != CockroachBehaviorState::Lurk &&
         state_ != CockroachBehaviorState::Groom &&
+        state_ != CockroachBehaviorState::SeekFood &&
+        state_ != CockroachBehaviorState::Feeding &&
         state_ != CockroachBehaviorState::SlapTargeted &&
         state_ != CockroachBehaviorState::Dead) {
         shelterTimer_ -= dt;
@@ -467,6 +486,35 @@ void Cockroach::updateBehavior(
         transitionTo(CockroachBehaviorState::Startled, cursorDelta);
     }
 
+    const bool canSeekFood =
+        state_ == CockroachBehaviorState::Pause ||
+        state_ == CockroachBehaviorState::Creep ||
+        state_ == CockroachBehaviorState::Wander ||
+        state_ == CockroachBehaviorState::SeekCorner ||
+        state_ == CockroachBehaviorState::Lurk ||
+        state_ == CockroachBehaviorState::Groom;
+    if (settings_.enableExtendedBehaviors &&
+        input.baitActive && canSeekFood &&
+        foodRetryTimer_ <= 0.0f) {
+        target_ = input.baitPosition;
+        transitionTo(CockroachBehaviorState::SeekFood);
+    }
+    if (state_ == CockroachBehaviorState::SeekFood) {
+        if (!input.baitActive) {
+            foodRetryTimer_ = 1.5f;
+            transitionTo(CockroachBehaviorState::Wander);
+        } else {
+            target_ = input.baitPosition;
+            if (length(target_ - position_) <
+                settings_.bodyLength * 0.34f) {
+                transitionTo(CockroachBehaviorState::Feeding);
+            }
+        }
+    } else if (state_ == CockroachBehaviorState::Feeding &&
+               !input.baitActive) {
+        transitionTo(CockroachBehaviorState::Wander);
+    }
+
     const bool canSeekShelter =
         state_ == CockroachBehaviorState::Pause ||
         state_ == CockroachBehaviorState::Creep ||
@@ -507,6 +555,15 @@ void Cockroach::updateBehavior(
         } else if (state_ == CockroachBehaviorState::Groom) {
             transitionTo(CockroachBehaviorState::Lurk);
         } else if (state_ ==
+                   CockroachBehaviorState::SeekFood) {
+            foodRetryTimer_ = randomRange(2.0f, 4.0f);
+            transitionTo(CockroachBehaviorState::Wander);
+        } else if (state_ ==
+                   CockroachBehaviorState::Feeding) {
+            foodConsumedThisFrame_ = true;
+            shelterTimer_ = randomRange(12.0f, 24.0f);
+            transitionTo(CockroachBehaviorState::Wander);
+        } else if (state_ ==
                    CockroachBehaviorState::SlapTargeted) {
             transitionTo(
                 CockroachBehaviorState::Startled,
@@ -539,6 +596,7 @@ void Cockroach::updateWithInput(
     float dt, const CockroachBehaviorInput& input,
     const std::vector<ScreenObstacle>& obstacles) {
     const Vec2 frameStartPosition = position_;
+    foodConsumedThisFrame_ = false;
     behaviorClock_ += dt;
     obstacleEscapeTimer_ =
         std::max(0.0f, obstacleEscapeTimer_ - dt);
@@ -554,6 +612,7 @@ void Cockroach::updateWithInput(
     if (state_ == CockroachBehaviorState::Pause ||
         state_ == CockroachBehaviorState::Lurk ||
         state_ == CockroachBehaviorState::Groom ||
+        state_ == CockroachBehaviorState::Feeding ||
         state_ == CockroachBehaviorState::Startled) {
         direction = {std::sin(heading_), -std::cos(heading_)};
     }
@@ -697,7 +756,8 @@ void Cockroach::updateWithInput(
             desiredHeading_ +=
                 std::sin(behaviorClock_ * 1.7f + steeringPhase_) * 0.055f +
                 std::sin(behaviorClock_ * 4.1f + steeringPhase_) * 0.018f;
-        } else if (state_ == CockroachBehaviorState::Creep) {
+        } else if (state_ == CockroachBehaviorState::Creep ||
+                   state_ == CockroachBehaviorState::SeekFood) {
             desiredHeading_ +=
                 std::sin(behaviorClock_ * 1.05f + steeringPhase_) * 0.082f +
                 std::sin(behaviorClock_ * 2.8f + steeringPhase_) * 0.024f;
@@ -711,7 +771,8 @@ void Cockroach::updateWithInput(
         state_ == CockroachBehaviorState::Flee
             ? 8.8f
             : ((state_ == CockroachBehaviorState::Creep ||
-                state_ == CockroachBehaviorState::SeekCorner)
+                state_ == CockroachBehaviorState::SeekCorner ||
+                state_ == CockroachBehaviorState::SeekFood)
                    ? 3.4f
                    : 4.5f);
     if (obstacleUrgency > 0.0f) {
@@ -738,7 +799,8 @@ void Cockroach::updateWithInput(
         effectiveDesiredSpeed *=
             0.72f + stridePulse * 0.22f + paceDrift * 0.10f;
     } else if (state_ == CockroachBehaviorState::Creep ||
-               state_ == CockroachBehaviorState::SeekCorner) {
+               state_ == CockroachBehaviorState::SeekCorner ||
+               state_ == CockroachBehaviorState::SeekFood) {
         const float carefulStep =
             0.5f + 0.5f *
                        std::sin(behaviorClock_ * 3.1f + speedPulsePhase_);
@@ -774,7 +836,8 @@ void Cockroach::updateWithInput(
             ? 1350.0f
             : (state_ == CockroachBehaviorState::Startled
                    ? 1550.0f
-                   : (state_ == CockroachBehaviorState::Creep
+                   : ((state_ == CockroachBehaviorState::Creep ||
+                       state_ == CockroachBehaviorState::SeekFood)
                           ? 520.0f
                           : 680.0f));
     if (obstacleUrgency > 0.0f) {
@@ -1042,6 +1105,7 @@ void Cockroach::updateWithInput(
         state_ == CockroachBehaviorState::Creep ||
         state_ == CockroachBehaviorState::Wander ||
         state_ == CockroachBehaviorState::SeekCorner ||
+        state_ == CockroachBehaviorState::SeekFood ||
         state_ == CockroachBehaviorState::Flee ||
         recoveryTimer_ > 0.0f ||
         obstacleUrgency > 0.25f ||
@@ -1210,7 +1274,8 @@ void Cockroach::renderAt(SDL_Renderer* renderer,
 
     float probingAmount = 0.42f;
     if (state_ == CockroachBehaviorState::Pause ||
-        state_ == CockroachBehaviorState::Creep) {
+        state_ == CockroachBehaviorState::Creep ||
+        state_ == CockroachBehaviorState::SeekFood) {
         probingAmount = 1.0f;
     } else if (state_ == CockroachBehaviorState::Startled) {
         probingAmount = 0.22f;
@@ -1219,6 +1284,8 @@ void Cockroach::renderAt(SDL_Renderer* renderer,
     } else if (state_ == CockroachBehaviorState::Lurk ||
                state_ == CockroachBehaviorState::Groom) {
         probingAmount = 1.0f;
+    } else if (state_ == CockroachBehaviorState::Feeding) {
+        probingAmount = 0.75f;
     }
     CockroachAnimationMode animationMode =
         CockroachAnimationMode::Normal;
@@ -1226,6 +1293,8 @@ void Cockroach::renderAt(SDL_Renderer* renderer,
         animationMode = CockroachAnimationMode::Lurking;
     } else if (state_ == CockroachBehaviorState::Groom) {
         animationMode = CockroachAnimationMode::Grooming;
+    } else if (state_ == CockroachBehaviorState::Feeding) {
+        animationMode = CockroachAnimationMode::Feeding;
     } else if (dead) {
         animationMode = CockroachAnimationMode::Dead;
     }
@@ -1327,7 +1396,8 @@ CockroachBehaviorSnapshot Cockroach::behaviorSnapshot() const {
         stateClock_,
         threatCooldown_,
         respawnCount_,
-        state_ != CockroachBehaviorState::Dead};
+        state_ != CockroachBehaviorState::Dead,
+        foodConsumedThisFrame_};
 }
 
 bool Cockroach::hitTestBody(Vec2 screenPoint) const {

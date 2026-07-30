@@ -137,6 +137,41 @@ void renderSlipper(
             strapCenter.y);
     }
 }
+
+void renderFood(SDL_Renderer* renderer) {
+    const float center =
+        WindowsInteractionController::baitOverlaySize * 0.5f;
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+
+    // A small bread crumb with an irregular dark crust and three loose
+    // granules remains readable on both light and dark wallpapers.
+    for (int y = -17; y <= 17; ++y) {
+        const float normalizedY =
+            static_cast<float>(y) / 17.0f;
+        const float width =
+            std::sqrt(std::max(
+                0.0f, 1.0f - normalizedY * normalizedY)) *
+            (22.0f + std::sin(static_cast<float>(y) * 0.7f) * 2.0f);
+        SDL_SetRenderDrawColor(
+            renderer,
+            y < -12 || y > 13 ? 116 : 194,
+            y < -12 || y > 13 ? 72 : 132,
+            y < -12 || y > 13 ? 34 : 65,
+            255);
+        SDL_RenderDrawLineF(
+            renderer, center - width, center + y,
+            center + width, center + y);
+    }
+    const std::array<SDL_FRect, 3> crumbs{{
+        {center - 30.0f, center + 18.0f, 6.0f, 5.0f},
+        {center + 25.0f, center + 11.0f, 5.0f, 5.0f},
+        {center + 18.0f, center - 27.0f, 4.0f, 4.0f},
+    }};
+    SDL_SetRenderDrawColor(renderer, 171, 106, 47, 255);
+    for (const SDL_FRect& crumb : crumbs) {
+        SDL_RenderFillRectF(renderer, &crumb);
+    }
+}
 #endif
 } // namespace
 
@@ -196,6 +231,16 @@ SlipperInteractionEvents WindowsInteractionController::update(
         setSlipperMode(!slipperMode_);
     }
     toggleWasDown_ = toggleDown;
+
+    const bool baitDown =
+        control && alt &&
+        (GetAsyncKeyState('F') & 0x8000) != 0;
+    if (baitDown && !baitWasDown_) {
+        setSlipperMode(false);
+        events.baitPlacementRequested = true;
+        events.baitPosition = cursorPosition;
+    }
+    baitWasDown_ = baitDown;
 
     const bool escapeDown =
         (GetAsyncKeyState(VK_ESCAPE) & 0x8000) != 0;
@@ -262,6 +307,39 @@ bool WindowsInteractionController::render(
 #else
     (void)overlay;
     (void)cursorPosition;
+    return true;
+#endif
+}
+
+void WindowsInteractionController::placeBait(Vec2 position) {
+    if (!enabled_) return;
+    baitPosition_ = position;
+    baitActive_ = true;
+}
+
+void WindowsInteractionController::clearBait() {
+    baitActive_ = false;
+}
+
+bool WindowsInteractionController::renderBait(
+    OverlayWindow& overlay) {
+#if defined(_WIN32)
+    if (!baitActive_) {
+        overlay.hide();
+        return true;
+    }
+    SDL_Renderer* renderer = overlay.renderer();
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
+    SDL_RenderClear(renderer);
+    renderFood(renderer);
+    return overlay.presentAt(
+        static_cast<int>(std::round(
+            baitPosition_.x - baitOverlaySize * 0.5f)),
+        static_cast<int>(std::round(
+            baitPosition_.y - baitOverlaySize * 0.5f)));
+#else
+    (void)overlay;
     return true;
 #endif
 }
