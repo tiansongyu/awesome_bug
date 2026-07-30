@@ -49,6 +49,10 @@ private:
     float steeringPhase_ = 0.0f;
     float speedPulsePhase_ = 0.0f;
     float obstacleEscapeTimer_ = 0.0f;
+    float blockedMotionTimer_ = 0.0f;
+    float edgeDwellTimer_ = 0.0f;
+    float recoveryTimer_ = 0.0f;
+    Vec2 recoveryDirection_;
     MotionState state_ = MotionState::Wander;
 
     float randomRange(float low, float high);

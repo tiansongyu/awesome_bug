@@ -11,6 +11,14 @@ float dot(Vec2 left, Vec2 right) {
     return left.x * right.x + left.y * right.y;
 }
 
+Vec2 rotateVector(Vec2 value, float angle) {
+    const float cosine = std::cos(angle);
+    const float sine = std::sin(angle);
+    return {
+        value.x * cosine - value.y * sine,
+        value.x * sine + value.y * cosine};
+}
+
 struct ExpandedObstacle {
     float left = 0.0f;
     float top = 0.0f;
@@ -113,9 +121,9 @@ void Cockroach::enterWander() {
 
 void Cockroach::enterPause() {
     state_ = MotionState::Pause;
-    stateTimer_ = randomRange(0.08f, 0.52f);
-    if (randomRange(0.0f, 1.0f) < 0.12f) {
-        stateTimer_ += randomRange(0.45f, 0.95f);
+    stateTimer_ = randomRange(0.045f, 0.24f);
+    if (randomRange(0.0f, 1.0f) < 0.07f) {
+        stateTimer_ += randomRange(0.25f, 0.55f);
     }
     desiredSpeed_ = 0.0f;
 }
@@ -138,10 +146,12 @@ void Cockroach::enterFlee(Vec2 awayFromCursor) {
 void Cockroach::update(
     float dt, Vec2 cursorScreenPosition,
     const std::vector<ScreenObstacle>& obstacles) {
+    const Vec2 frameStartPosition = position_;
     behaviorClock_ += dt;
     stateTimer_ -= dt;
     obstacleEscapeTimer_ =
         std::max(0.0f, obstacleEscapeTimer_ - dt);
+    recoveryTimer_ = std::max(0.0f, recoveryTimer_ - dt);
 
     const Vec2 cursorDelta = position_ - cursorScreenPosition;
     const float alarmRadius = settings_.bodyLength * 1.75f;
@@ -157,7 +167,7 @@ void Cockroach::update(
         } else if (state_ == MotionState::Pause ||
                    state_ == MotionState::Flee) {
             enterWander();
-        } else if (randomRange(0.0f, 1.0f) < 0.31f) {
+        } else if (randomRange(0.0f, 1.0f) < 0.22f) {
             enterPause();
         } else {
             enterWander();
@@ -166,7 +176,7 @@ void Cockroach::update(
 
     if (state_ == MotionState::Wander &&
         length(target_ - position_) < settings_.bodyLength * 0.48f) {
-        if (randomRange(0.0f, 1.0f) < 0.38f) {
+        if (randomRange(0.0f, 1.0f) < 0.26f) {
             enterPause();
         } else {
             enterWander();
@@ -198,6 +208,15 @@ void Cockroach::update(
         position_.y - bodyExtentY - desktop_.y;
     const float bottomDistance =
         desktop_.y + desktop_.h - position_.y - bodyExtentY;
+    const float nearestEdgeDistance = std::min(
+        std::min(leftDistance, rightDistance),
+        std::min(topDistance, bottomDistance));
+    if (nearestEdgeDistance < 22.0f) {
+        edgeDwellTimer_ += dt;
+    } else {
+        edgeDwellTimer_ =
+            std::max(0.0f, edgeDwellTimer_ - dt * 3.2f);
+    }
     if (leftDistance < edgeMargin) edgePush.x += (edgeMargin - leftDistance) / edgeMargin;
     if (rightDistance < edgeMargin) edgePush.x -= (edgeMargin - rightDistance) / edgeMargin;
     if (topDistance < edgeMargin) edgePush.y += (edgeMargin - topDistance) / edgeMargin;
@@ -289,6 +308,15 @@ void Cockroach::update(
             direction * 0.48f + obstacleEscapeDirection_ * 1.75f);
         obstacleUrgency = std::max(obstacleUrgency, 0.72f);
     }
+    if (recoveryTimer_ > 0.0f &&
+        length(recoveryDirection_) > 0.001f) {
+        // A confirmed no-progress condition gets a short, decisive escape
+        // heading. Keeping a little of the normal steering avoids a robotic
+        // snap while preventing nearby icons from cancelling the exit route.
+        direction = normalized(
+            direction * 0.16f + recoveryDirection_ * 2.85f);
+        obstacleUrgency = std::max(obstacleUrgency, 0.88f);
+    }
 
     if (length(direction) > 0.001f) {
         desiredHeading_ = std::atan2(direction.x, -direction.y);
@@ -307,6 +335,9 @@ void Cockroach::update(
         turnRate = std::max(
             turnRate, 5.8f + obstacleUrgency * 4.8f +
                           movingObstacleUrgency * 1.8f);
+    }
+    if (recoveryTimer_ > 0.0f) {
+        turnRate = std::max(turnRate, 12.5f);
     }
     const float headingError = wrapAngle(desiredHeading_ - heading_);
     heading_ = wrapAngle(
@@ -333,6 +364,11 @@ void Cockroach::update(
             (1.0f - obstacleUrgency * 0.18f);
         effectiveDesiredSpeed =
             std::max(retainedSpeed, minimumEscapeSpeed);
+    }
+    if (recoveryTimer_ > 0.0f) {
+        effectiveDesiredSpeed = std::max(
+            effectiveDesiredSpeed,
+            settings_.speedMultiplier * 150.0f);
     }
     float acceleration =
         state_ == MotionState::Flee
@@ -395,9 +431,10 @@ void Cockroach::update(
         return false;
     };
 
-    // Move in short continuous steps. If a step enters a static icon, try
-    // sliding on either axis. This prevents high-speed tunnelling without ever
-    // projecting the pet to the opposite side of an icon.
+    // Move in short continuous steps. When the direct step is blocked, also
+    // test shallow and steep turns in both directions. This preserves
+    // continuous collision while letting the roach flow around icon corners
+    // instead of waiting for its normal heading to rotate far enough.
     const float movementDistance = length(intendedDisplacement);
     const float maximumSubstep =
         std::max(4.0f, settings_.bodyLength * 0.035f);
@@ -407,31 +444,51 @@ void Cockroach::update(
     const Vec2 movementStep =
         intendedDisplacement *
         (1.0f / static_cast<float>(movementSteps));
+    const Vec2 intendedDirection = normalized(movementStep);
     for (int step = 0; step < movementSteps; ++step) {
-        const Vec2 candidate =
-            clampToScreen(position_ + movementStep);
-        if (!collidesWithStaticIcon(candidate)) {
-            position_ = candidate;
-            continue;
-        }
+        constexpr float shallowTurn = 35.0f * pi / 180.0f;
+        constexpr float steepTurn = 70.0f * pi / 180.0f;
+        const Vec2 alternatives[]{
+            movementStep,
+            {movementStep.x, 0.0f},
+            {0.0f, movementStep.y},
+            rotateVector(movementStep, shallowTurn),
+            rotateVector(movementStep, -shallowTurn),
+            rotateVector(movementStep, steepTurn),
+            rotateVector(movementStep, -steepTurn)};
 
-        const Vec2 slideX =
-            clampToScreen({candidate.x, position_.y});
-        const Vec2 slideY =
-            clampToScreen({position_.x, candidate.y});
-        const bool canSlideX =
-            !collidesWithStaticIcon(slideX);
-        const bool canSlideY =
-            !collidesWithStaticIcon(slideY);
-        if (canSlideX && canSlideY) {
-            position_ = std::abs(movementStep.x) >=
-                                std::abs(movementStep.y)
-                            ? slideX
-                            : slideY;
-        } else if (canSlideX) {
-            position_ = slideX;
-        } else if (canSlideY) {
-            position_ = slideY;
+        Vec2 bestPosition = position_;
+        float bestScore = -1.0e9f;
+        for (const Vec2 alternative : alternatives) {
+            const Vec2 candidate =
+                clampToScreen(position_ + alternative);
+            const Vec2 actualDelta = candidate - position_;
+            const float actualDistance = length(actualDelta);
+            if (actualDistance < 0.05f ||
+                collidesWithStaticIcon(candidate)) {
+                continue;
+            }
+
+            const Vec2 actualDirection = normalized(actualDelta);
+            float score =
+                actualDistance +
+                dot(actualDirection, intendedDirection) *
+                    maximumSubstep * 0.42f;
+            if (recoveryTimer_ > 0.0f) {
+                score += dot(actualDirection, recoveryDirection_) *
+                         maximumSubstep * 0.72f;
+            }
+            if (score > bestScore) {
+                bestPosition = candidate;
+                bestScore = score;
+            }
+        }
+        if (bestScore > -1.0e8f) {
+            position_ = bestPosition;
+        } else {
+            // Every alternate direction is blocked. Repeating the remaining
+            // substeps cannot help and would only waste CPU.
+            break;
         }
     }
 
@@ -440,6 +497,7 @@ void Cockroach::update(
     // budget, so even an edge trap cannot produce a visible teleport.
     float remainingSeparation =
         std::min(12.0f, 420.0f * dt + 1.5f);
+    bool overlappedObstacle = false;
     const auto separateFromObstacle =
         [&](const ScreenObstacle& obstacle) {
         if (remainingSeparation <= 0.001f) return false;
@@ -447,6 +505,7 @@ void Cockroach::update(
         const ExpandedObstacle expanded = expandObstacle(
             obstacle, resolvedExtentX, resolvedExtentY, separationPadding);
         if (!contains(expanded, position_)) return false;
+        overlappedObstacle = true;
 
         const Vec2 candidates[4]{
             {expanded.left - position_.x - 1.0f, 0.0f},
@@ -481,23 +540,70 @@ void Cockroach::update(
         }
 
         if (selectedDistance >= 1.0e8f) {
-            const Vec2 center{
+            // The shortest complete exit can be outside the work area when an
+            // icon is dragged over a roach at an edge. Choose a feasible small
+            // step instead of pushing outward and losing the whole correction
+            // to screen clamping.
+            const Vec2 obstacleCenter{
                 (expanded.left + expanded.right) * 0.5f,
                 (expanded.top + expanded.bottom) * 0.5f};
-            selected = normalized(position_ - center) *
-                       settings_.bodyLength * 0.25f;
-            selectedDistance = length(selected);
+            const Vec2 workAreaCenter{
+                desktop_.x + desktop_.w * 0.5f,
+                desktop_.y + desktop_.h * 0.5f};
+            Vec2 away = normalized(position_ - obstacleCenter);
+            const Vec2 inward =
+                normalized(workAreaCenter - position_);
+            if (length(away) < 0.001f) away = inward;
+            Vec2 preferred =
+                normalized(away * 1.25f + inward * 0.85f);
+            if (length(preferred) < 0.001f) preferred = inward;
+
+            const Vec2 fallbackDirections[]{
+                preferred,
+                inward,
+                {1.0f, 0.0f},
+                {-1.0f, 0.0f},
+                {0.0f, 1.0f},
+                {0.0f, -1.0f}};
+            float bestFallbackScore = -1.0e9f;
+            for (Vec2 fallbackDirection : fallbackDirections) {
+                fallbackDirection = normalized(fallbackDirection);
+                if (length(fallbackDirection) < 0.001f) continue;
+                const Vec2 destination = clampToScreen(
+                    position_ +
+                    fallbackDirection * remainingSeparation);
+                const Vec2 actualDelta = destination - position_;
+                const float actualDistance = length(actualDelta);
+                if (actualDistance < 0.05f) continue;
+                const Vec2 actualDirection =
+                    normalized(actualDelta);
+                const float score =
+                    actualDistance +
+                    dot(actualDirection, away) * 3.0f +
+                    dot(actualDirection, inward) * 2.0f;
+                if (score > bestFallbackScore) {
+                    selected = actualDelta;
+                    selectedDistance = actualDistance;
+                    bestFallbackScore = score;
+                }
+            }
         }
         if (selectedDistance > 0.001f) {
             const Vec2 escapeDirection = normalized(selected);
+            const float separationDistance =
+                std::min(selectedDistance, remainingSeparation);
+            const Vec2 previousPosition = position_;
+            position_ = clampToScreen(
+                position_ +
+                escapeDirection * separationDistance);
+            const float actualSeparation =
+                length(position_ - previousPosition);
+            if (actualSeparation < 0.05f) return false;
+
             obstacleEscapeDirection_ = escapeDirection;
             obstacleEscapeTimer_ = std::max(
                 obstacleEscapeTimer_, obstacle.moving ? 0.42f : 0.22f);
-            const float separationDistance =
-                std::min(selectedDistance, remainingSeparation);
-            position_ += escapeDirection * separationDistance;
-            position_ = clampToScreen(position_);
-            remainingSeparation -= separationDistance;
+            remainingSeparation -= actualSeparation;
             desiredHeading_ = std::atan2(
                 escapeDirection.x, -escapeDirection.y);
             speed_ = std::max(
@@ -523,6 +629,134 @@ void Cockroach::update(
     }
 
     position_ = clampToScreen(position_);
+
+    // Detect commanded motion that produces almost no real displacement.
+    // This catches icon corners, overlapping labels and edge traps without
+    // treating the short intentional pause state as a fault.
+    const float actualMovement =
+        length(position_ - frameStartPosition);
+    const bool commandedToMove =
+        state_ == MotionState::Wander ||
+        state_ == MotionState::Flee ||
+        recoveryTimer_ > 0.0f ||
+        obstacleUrgency > 0.25f ||
+        overlappedObstacle;
+    const bool insufficientProgress =
+        movementDistance > 0.55f &&
+        (actualMovement < 0.35f ||
+         actualMovement < movementDistance * 0.16f);
+    if (commandedToMove &&
+        (insufficientProgress ||
+         (overlappedObstacle && actualMovement < 0.75f))) {
+        blockedMotionTimer_ += dt;
+    } else {
+        blockedMotionTimer_ =
+            std::max(0.0f, blockedMotionTimer_ - dt * 2.8f);
+    }
+
+    if (blockedMotionTimer_ >= 0.16f ||
+        edgeDwellTimer_ >= 0.72f) {
+        const auto collidesWithAnyIcon =
+            [&](Vec2 point) {
+            for (const ScreenObstacle& obstacle : obstacles) {
+                const float padding = obstacle.moving ? 8.0f : 2.0f;
+                const ExpandedObstacle expanded = expandObstacle(
+                    obstacle, resolvedExtentX, resolvedExtentY, padding);
+                if (contains(expanded, point)) return true;
+            }
+            return false;
+        };
+
+        const Vec2 workAreaCenter{
+            desktop_.x + desktop_.w * 0.5f,
+            desktop_.y + desktop_.h * 0.5f};
+        Vec2 inward = normalized(workAreaCenter - position_);
+        if (length(inward) < 0.001f) {
+            inward = currentForward;
+        }
+
+        constexpr int directionCount = 24;
+        const float probeStep =
+            std::max(6.0f, settings_.bodyLength * 0.045f);
+        const float probeDistance =
+            std::max(160.0f, settings_.bodyLength * 1.45f);
+        const bool startsBlocked =
+            collidesWithAnyIcon(position_);
+        Vec2 bestDirection = inward;
+        float bestScore = -1.0e9f;
+        const float angleOffset =
+            heading_ + steeringPhase_ * 0.13f;
+
+        for (int index = 0; index < directionCount; ++index) {
+            const float angle =
+                angleOffset +
+                2.0f * pi * static_cast<float>(index) /
+                    static_cast<float>(directionCount);
+            const Vec2 candidateDirection{
+                std::cos(angle), std::sin(angle)};
+            bool reachedClearSpace = !startsBlocked;
+            float blockedPrefix = 0.0f;
+            float clearDistance = 0.0f;
+
+            for (float distance = probeStep;
+                 distance <= probeDistance;
+                 distance += probeStep) {
+                const Vec2 sample =
+                    position_ + candidateDirection * distance;
+                if (sample.x < minimumX || sample.x > maximumX ||
+                    sample.y < minimumY || sample.y > maximumY) {
+                    break;
+                }
+
+                const bool blocked =
+                    collidesWithAnyIcon(sample);
+                if (!reachedClearSpace) {
+                    if (blocked) {
+                        blockedPrefix += probeStep;
+                        continue;
+                    }
+                    reachedClearSpace = true;
+                } else if (blocked) {
+                    break;
+                }
+                clearDistance += probeStep;
+            }
+
+            float score =
+                clearDistance - blockedPrefix * 0.62f +
+                dot(candidateDirection, inward) * 18.0f +
+                dot(candidateDirection, currentForward) * 5.0f;
+            if (!reachedClearSpace) {
+                score -= probeDistance * 1.35f;
+            }
+            if (score > bestScore) {
+                bestScore = score;
+                bestDirection = candidateDirection;
+            }
+        }
+
+        recoveryDirection_ = normalized(bestDirection);
+        if (length(recoveryDirection_) < 0.001f) {
+            recoveryDirection_ = inward;
+        }
+        recoveryTimer_ = randomRange(0.48f, 0.72f);
+        obstacleEscapeDirection_ = recoveryDirection_;
+        obstacleEscapeTimer_ = recoveryTimer_;
+        state_ = MotionState::Wander;
+        stateTimer_ = randomRange(0.72f, 1.15f);
+        desiredSpeed_ =
+            randomRange(178.0f, 248.0f) *
+            settings_.speedMultiplier;
+        speed_ = std::max(
+            speed_, settings_.speedMultiplier * 92.0f);
+        target_ =
+            position_ + recoveryDirection_ *
+            std::max(260.0f, settings_.bodyLength * 2.1f);
+        desiredHeading_ = std::atan2(
+            recoveryDirection_.x, -recoveryDirection_.y);
+        blockedMotionTimer_ = 0.0f;
+        edgeDwellTimer_ = 0.0f;
+    }
 
     const float cyclesPerSecond = 0.8f + speed_ / (settings_.bodyLength * 0.42f);
     gaitClock_ += dt * cyclesPerSecond * 2.0f * pi;

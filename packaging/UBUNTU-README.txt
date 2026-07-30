@@ -11,7 +11,8 @@ bin/cockroach_swarm_20
 桌面图标碰撞面向 Ubuntu GNOME X11 + Desktop Icons NG（DING）：
 桌面位于前台时，蟑螂只使用躯干碰撞体绕开图标和文字区域，
 腿和触角不参与碰撞；拖拽图标时会避开移动碰撞体，即使图标直接
-覆盖蟑螂，蟑螂也会继续移动并选择方向脱离。
+覆盖蟑螂，蟑螂也会继续移动并选择方向脱离。连续受阻时会主动探测
+多个方向并选择空隙脱困，不会长时间卡在图标夹角。
 
 运行依赖（Ubuntu / Debian）：
   sudo apt install libsdl2-2.0-0 libpng16-16 libx11-6 libxfixes3 \

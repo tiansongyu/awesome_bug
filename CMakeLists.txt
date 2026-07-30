@@ -85,6 +85,35 @@ endif()
 add_cockroach_executable(cockroach_overlay 1)
 add_cockroach_executable(cockroach_swarm_20 20)
 
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(cockroach_motion_test
+        tests/cockroach_motion_test.cpp
+        src/cockroach.cpp
+    )
+    target_include_directories(cockroach_motion_test PRIVATE src)
+    if(TARGET SDL2::SDL2)
+        target_link_libraries(cockroach_motion_test PRIVATE SDL2::SDL2)
+    else()
+        target_include_directories(cockroach_motion_test
+            PRIVATE ${SDL2_INCLUDE_DIRS})
+        target_link_libraries(cockroach_motion_test
+            PRIVATE ${SDL2_LIBRARIES})
+    endif()
+    if(MSVC)
+        target_compile_options(cockroach_motion_test
+            PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(cockroach_motion_test
+            PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+    if(MINGW)
+        target_link_options(cockroach_motion_test PRIVATE
+            -static-libgcc -static-libstdc++)
+    endif()
+    add_test(NAME cockroach_motion COMMAND cockroach_motion_test)
+endif()
+
 install(TARGETS cockroach_overlay cockroach_swarm_20 RUNTIME DESTINATION bin)
 install(FILES assets/cockroach_full.png
         DESTINATION share/cockroach-overlay/assets)
