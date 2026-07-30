@@ -650,6 +650,17 @@ int main(int argc, char** argv) {
                     SDL_GetError());
                 running = false;
             }
+#if defined(_WIN32)
+            if (windowsSinglePet &&
+                interaction.baitActive() &&
+                !instances.empty() &&
+                !baitOverlay->placeBehind(
+                    *instances.front()->overlay)) {
+                showError(
+                    "Cannot keep food below the cockroach");
+                running = false;
+            }
+#endif
 
             ++frameCount;
             if (options.maxFrames > 0 && frameCount >= options.maxFrames) {

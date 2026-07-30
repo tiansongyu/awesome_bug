@@ -352,6 +352,24 @@ bool OverlayWindow::presentAt(int screenX, int screenY) {
 #endif
 }
 
+bool OverlayWindow::placeBehind(
+    const OverlayWindow& foreground) {
+#if defined(_WIN32)
+    if (!native_ || !native_->hwnd ||
+        !foreground.native_ || !foreground.native_->hwnd) {
+        return false;
+    }
+    return SetWindowPos(
+               native_->hwnd, foreground.native_->hwnd,
+               0, 0, 0, 0,
+               SWP_NOMOVE | SWP_NOSIZE |
+                   SWP_NOACTIVATE) != FALSE;
+#else
+    (void)foreground;
+    return true;
+#endif
+}
+
 void OverlayWindow::hide() {
     if (!window_) return;
 #if defined(_WIN32)
