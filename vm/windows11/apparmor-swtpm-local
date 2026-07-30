@@ -1,0 +1,3 @@
+# Allow libvirt's unprivileged qemu:///session driver to create its
+# per-user swtpm socket and pid file.
+owner /run/user/[0-9]*/libvirt/qemu/run/swtpm/** rwk,
