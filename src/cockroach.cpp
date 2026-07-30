@@ -826,7 +826,12 @@ void Cockroach::update(
         edgeDwellTimer_ = 0.0f;
     }
 
-    const float cyclesPerSecond = 0.8f + speed_ / (settings_.bodyLength * 0.42f);
+    // Keep the tripod gait readable at the default 3x travel speed. The old
+    // uncapped value could exceed eight cycles per second, which looked
+    // almost static or aliased on a 60 Hz Windows layered window.
+    const float cyclesPerSecond = clampf(
+        0.35f + speed_ / (settings_.bodyLength * 0.62f),
+        0.35f, 5.2f);
     gaitClock_ += dt * cyclesPerSecond * 2.0f * pi;
 }
 

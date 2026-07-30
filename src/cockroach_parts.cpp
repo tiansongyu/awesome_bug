@@ -55,7 +55,7 @@ CockroachAnimationPose calculateCockroachAnimation(
         1.10f, 1.07f, 0.82f, 0.85f, 1.18f, 1.14f};
 
     const float strideRange =
-        (1.0f + 11.5f * std::sqrt(motionAmount)) *
+        (2.0f + 18.0f * std::sqrt(motionAmount)) *
         degreesToRadians;
     for (std::size_t leg = 0; leg < pose.legs.size(); ++leg) {
         const float phase = gaitClock + tripodPhase[leg];
@@ -71,10 +71,10 @@ CockroachAnimationPose calculateCockroachAnimation(
         // fore/aft coxa motion prevents the six sprites looking hinged to one
         // rigid clock, while the tripod phase still controls planted legs.
         const float reach =
-            bodyLength * (0.0015f + motionAmount * 0.0040f);
+            bodyLength * (0.0020f + motionAmount * 0.0060f);
         const float lift =
             std::max(0.0f, std::cos(phase)) *
-            bodyLength * motionAmount * 0.0023f;
+            bodyLength * motionAmount * 0.0035f;
         pose.legs[leg].jointOffset = {
             side[leg] * lift,
             -std::cos(phase) * reach};
@@ -83,25 +83,25 @@ CockroachAnimationPose calculateCockroachAnimation(
     // Each antenna probes independently. Slower/paused animals use a wider
     // search arc; fleeing animals pull their antennae into a smaller sweep.
     const float antennaRange =
-        (5.0f + probingAmount * 13.0f) * degreesToRadians;
+        (10.0f + probingAmount * 20.0f) * degreesToRadians;
     pose.antennae[indexOf(CockroachAntenna::Left)].rotation =
         antennaRange *
-        (0.72f * std::sin(behaviorClock * 1.07f + 0.21f) +
-         0.21f * std::sin(behaviorClock * 2.83f + 1.10f) +
-         0.07f * std::sin(behaviorClock * 5.71f));
+        (0.65f * std::sin(behaviorClock * 2.55f + 0.21f) +
+         0.24f * std::sin(behaviorClock * 5.70f + 1.10f) +
+         0.11f * std::sin(behaviorClock * 11.30f));
     pose.antennae[indexOf(CockroachAntenna::Right)].rotation =
         -antennaRange *
-        (0.67f * std::sin(behaviorClock * 0.91f + 1.37f) +
-         0.23f * std::sin(behaviorClock * 2.47f + 0.44f) +
-         0.10f * std::sin(behaviorClock * 5.13f + 2.02f));
+        (0.61f * std::sin(behaviorClock * 2.13f + 1.37f) +
+         0.26f * std::sin(behaviorClock * 5.10f + 0.44f) +
+         0.13f * std::sin(behaviorClock * 10.70f + 2.02f));
 
     const float feelerShift =
-        bodyLength * (0.0015f + probingAmount * 0.0020f);
+        bodyLength * (0.0030f + probingAmount * 0.0040f);
     pose.antennae[indexOf(CockroachAntenna::Left)].jointOffset = {
-        -feelerShift * std::sin(behaviorClock * 1.61f),
-        feelerShift * std::sin(behaviorClock * 2.19f + 0.30f)};
+        -feelerShift * std::sin(behaviorClock * 3.21f),
+        feelerShift * std::sin(behaviorClock * 4.39f + 0.30f)};
     pose.antennae[indexOf(CockroachAntenna::Right)].jointOffset = {
-        feelerShift * std::sin(behaviorClock * 1.43f + 1.10f),
-        feelerShift * std::sin(behaviorClock * 2.03f + 1.90f)};
+        feelerShift * std::sin(behaviorClock * 2.87f + 1.10f),
+        feelerShift * std::sin(behaviorClock * 4.07f + 1.90f)};
     return pose;
 }

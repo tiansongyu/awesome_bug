@@ -1,26 +1,50 @@
-# SDL2 桌面蟑螂
+# Awesome Bug
 
-一个面向 Windows 与 Linux 的透明桌面覆盖程序。启动后，写实的大蟑螂会保持在其他窗口上方爬行，同时不拦截鼠标操作。
+基于 C++17 和 SDL2 的跨平台桌面宠物。程序会在 Windows 或 Linux
+桌面最上层绘制一只写实蟑螂，并模拟六足步态、触须探测、随机巡游、
+受惊逃跑以及桌面图标避障。覆盖窗口默认鼠标穿透，不影响正常操作。
 
-## 效果与行为
+<p align="center">
+  <img src="docs/screenshots/windows11-desktop-pet.png"
+       alt="Awesome Bug 在 Windows 11 桌面运行"
+       width="900">
+</p>
 
-- SDL2 渲染，透明、无边框、置顶、任务栏隐藏、默认鼠标穿透。
-- 使用高细节正俯视组件图：身体、六条腿与两根触须是 9 个独立精灵。
-- 蟑螂可见区域完全不透明，只有周围背景透明；运行时会适度压低 RGB 亮度。
-- 六足使用交替三足步态（左前+右中+左后 / 右前+左中+右后），每条腿另有独立的微小相位变化；两根触须使用不同频率和相位探测，低速或停顿时摆幅增大，逃跑时收窄。
-- 通过随速度变化的步幅、微幅横摆、身体轻晃、速度脉冲和快速转向表现爬行感。
-- 以快速巡游为主，偶尔切换到带有轻微踌躇和柔和转向的低速潜行，再自然加速；另有长短停顿、受惊前瞬间僵停和突然冲刺。
-- Windows 默认以 1920×1080 下 165 像素身体长度为基准，按当前显示器完整分辨率自动缩放；`--size` 可覆盖自动结果。
-- 鼠标靠近时会快速向反方向逃跑。
-- Windows 或 Ubuntu GNOME 桌面位于前台时，会读取每个桌面图标（含标签）的实际边界，并只使用蟑螂躯干作为碰撞体转向绕行；腿和触角不参与碰撞。
-- 拖拽桌面图标时，会跟踪移动碰撞体；图标压到蟑螂上时会持续选择一个安全方向脱离，不会停住。
-- 连续受阻约 0.16 秒时会探测周围 24 个方向，选择空间最大的出口短暂加速脱困；图标夹角与屏幕边缘不会让它长时间卡住。
-- Ubuntu GNOME 通过 DING 的 AT-SPI 可访问性节点读取图标，并按每台显示器的缩放比例转换坐标，支持本机的多显示器与 200% 缩放。
-- Windows 使用逐像素 alpha 的 layered window；Linux 使用 ARGB + XShape/XFixes。
+## 功能
 
-## Linux 构建
+- 透明、无边框、置顶、任务栏隐藏的桌面覆盖窗口。
+- 身体、六条腿和两根触须由 9 个独立精灵组成。
+- 六足采用交替三足步态，每条腿带有独立的摆幅和微小相位变化。
+- 两根触须使用不同频率和相位运动；慢行时扩大探测范围，逃跑时收拢。
+- 支持快速巡游、低速潜行、短暂停顿、受惊僵停和突然冲刺。
+- 鼠标靠近时逃跑，移动速度与身体摆动、步幅同步变化。
+- Windows 和 Ubuntu GNOME 下可识别桌面图标，使用躯干碰撞体绕行。
+- 拖拽图标或发生重叠时主动脱离，不会因屏幕边缘或图标夹角长期卡住。
+- Windows 根据显示器分辨率自动调整身体尺寸。
+- 支持单只模式和 20 只随机大小、随机位置的群体模式。
 
-Ubuntu / Debian：
+蟑螂本身完全不透明；透明区域仅用于显示其周围的桌面。腿和触须不参与
+桌面图标碰撞，避免视觉器官扩大实际碰撞范围。
+
+## 生成的程序
+
+| 程序 | 说明 |
+| --- | --- |
+| `cockroach_overlay` | 单只蟑螂，随机初始位置 |
+| `cockroach_swarm_20` | 20 只蟑螂，分区随机生成，大小和速度略有差异 |
+
+## 平台支持
+
+| 平台 | 覆盖窗口 | 桌面图标避障 | 说明 |
+| --- | --- | --- | --- |
+| Windows 10/11 | 完整支持 | 完整支持 | 使用 layered window 和 Explorer 图标边界 |
+| Ubuntu GNOME X11 + DING | 完整支持 | 完整支持 | 通过 AT-SPI 读取图标及拖拽状态 |
+| 其他 Linux X11 桌面 | 支持 | 视桌面环境而定 | 透明置顶窗口可用，图标接口可能不同 |
+| Wayland | 有限支持 | 不保证 | 合成器会限制绝对定位、全局置顶和窗口探测 |
+
+## 快速开始
+
+### Ubuntu / Debian
 
 ```bash
 sudo apt update
@@ -28,102 +52,141 @@ sudo apt install build-essential cmake libsdl2-dev libpng-dev \
   libx11-dev libxext-dev libxfixes-dev libxrender-dev \
   libatspi2.0-dev pkg-config
 
+git clone https://github.com/tiansongyu/awesome_bug.git
+cd awesome_bug
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ./build/cockroach_overlay
 ```
 
-程序会优先使用 X11。Ubuntu 的桌面图标碰撞与拖拽跟踪面向 GNOME
-X11 + Desktop Icons NG（DING）。在 Wayland 桌面上，只要系统启用了
-XWayland，覆盖窗口仍会尝试通过 XWayland 运行，但桌面窗口识别、绝对定位和
-全局置顶会受到合成器限制；纯 Wayland 无法提供相同体验。
+需要完整的 Ubuntu 桌面图标交互时，建议登录 “Ubuntu on Xorg” 会话并启用
+Desktop Icons NG（DING）。
 
-## Windows 构建
+### Windows
 
-推荐使用 Visual Studio 2022、CMake 和 [vcpkg](https://github.com/microsoft/vcpkg)：
+推荐使用 Visual Studio 2022、CMake 和
+[vcpkg](https://github.com/microsoft/vcpkg)：
 
 ```powershell
-git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
-C:\vcpkg\bootstrap-vcpkg.bat
-C:\vcpkg\vcpkg.exe install sdl2:x64-windows libpng:x64-windows
+vcpkg install sdl2:x64-windows libpng:x64-windows
 
 cmake -S . -B build-win `
-  -DCMAKE_TOOLCHAIN_FILE=C:\vcpkg\scripts\buildsystems\vcpkg.cmake `
+  -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" `
   -DVCPKG_TARGET_TRIPLET=x64-windows
 cmake --build build-win --config Release
 .\build-win\Release\cockroach_overlay.exe
 ```
 
-CMake 会把 `assets/cockroach_parts_atlas.png` 自动复制到可执行文件旁边的 `assets` 目录。
+CMake 会把运行所需的 `cockroach_parts_atlas.png` 复制到可执行文件旁边的
+`assets` 目录。
 
-也可以在 Ubuntu / Debian 上直接交叉编译 Windows x64 版本：
+### 在 Ubuntu 上交叉编译 Windows 版本
 
 ```bash
 sudo apt install g++-mingw-w64-x86-64 libz-mingw-w64-dev
 ./scripts/build-windows.sh
 ```
 
-脚本会使用官方 SDL2 2.32.10 和 libpng 1.6.58 源码/开发包，并生成
-`dist/windows-x64/` 目录及 `dist/cockroach-overlay-windows-x64.zip`。
+生成结果：
+
+```text
+dist/windows-x64/
+dist/cockroach-overlay-windows-x64.zip
+```
 
 ## 使用
 
-双击或直接运行即可。Windows 会按当前显示器分辨率自动计算身体长度，
-1920×1080 时为 165 像素；Linux 默认身体长度为 165 像素。默认速度倍率为 3。
-
-Windows 默认尺寸示例：
-
-```text
-1280×720    110 px
-1366×768    117 px
-1920×1080   165 px
-2560×1440   220 px
-3840×2160   330 px
-```
-
-超宽屏按宽、高比例中较小的一项计算，避免蟑螂过大；自动缩放范围为
-0.6～2.0 倍。显式使用 `--size` 会关闭自动缩放并固定为指定像素长度。
-
 ```text
 cockroach_overlay [options]
-  --size N              固定身体长度，100..520；Windows 下覆盖自动缩放
-  --speed N             速度倍率，0.25..3
-  --display N           显示器编号，从 0 开始
-  --count N             蟑螂数量，1..50
-  --asset PATH          使用另一张兼容的 1536×1024 组件图
-  --no-click-through    关闭鼠标穿透，便于调试
-  --frames N            渲染 N 帧后退出，便于自动测试
-  --help                查看帮助
 ```
 
-按 `Ctrl+Alt+Q` 可随时退出。使用 `--no-click-through` 时也可以按 `Esc` 或 `Q`。
+| 参数 | 说明 |
+| --- | --- |
+| `--size N` | 固定身体长度，范围 `100..520`；Windows 下会覆盖自动缩放 |
+| `--speed N` | 速度倍率，范围 `0.25..3` |
+| `--display N` | 选择显示器，编号从 `0` 开始 |
+| `--count N` | 蟑螂数量，范围 `1..50` |
+| `--asset PATH` | 使用兼容的 `1536×1024` 组件图 |
+| `--no-click-through` | 关闭鼠标穿透，便于调试 |
+| `--frames N` | 渲染指定帧数后退出，便于自动测试 |
+| `--help` | 显示帮助 |
 
-例如，调整蟑螂大小和速度：
+示例：
 
 ```bash
 ./build/cockroach_overlay --size 220 --speed 1.35
+./build/cockroach_overlay --count 8
+./build/cockroach_swarm_20
 ```
 
-工程默认同时生成两个版本：
+按 `Ctrl+Alt+Q` 可随时退出。关闭鼠标穿透后，也可以使用 `Esc` 或 `Q`
+退出。
+
+Windows 默认以 1920×1080 下 165 像素身体长度为基准，根据当前显示器
+分辨率缩放：
+
+| 分辨率 | 默认身体长度 |
+| --- | ---: |
+| 1280×720 | 110 px |
+| 1920×1080 | 165 px |
+| 2560×1440 | 220 px |
+| 3840×2160 | 330 px |
+
+## 实现概览
+
+- `Cockroach` 状态机负责目标选择、速度变化、转向、逃跑和脱困。
+- 六足按两组交替三足运动，并叠加每条腿独立的细微变化。
+- 触须由两个不同的连续振荡器驱动，避免机械式镜像。
+- Windows 使用逐像素 alpha 的 layered window。
+- Linux 使用 ARGB、XShape 和 XFixes 创建透明点击穿透窗口。
+- Windows 通过 Explorer 列表视图读取图标边界。
+- Ubuntu GNOME 通过 DING 的 AT-SPI 节点读取图标和拖拽状态。
+- 图标碰撞只使用躯干；受阻时会探测多个候选方向并选择可用空间脱离。
+
+## 测试
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+cmake --build build --parallel
+ctest --test-dir build --output-on-failure
+```
+
+测试覆盖：
+
+- 分辨率与身体尺寸映射。
+- 图标重叠后的脱离时间、连续移动和单帧位移上限。
+- 屏幕边缘停留与长时间速度变化。
+- 九个精灵区域、旋转轴和 atlas 边界。
+- 交替三足相位、六腿独立变化和双触须非对称运动。
+
+## 项目结构
 
 ```text
-cockroach_overlay       单只蟑螂
-cockroach_swarm_20      20 只、随机大小与分区随机初始位置
+assets/
+  cockroach_parts_atlas.png   运行时组件图
+  cockroach_parts/            身体、六足和双触须的独立 PNG
+src/
+  cockroach.cpp               行为状态机、避障和组合绘制
+  cockroach_parts.cpp         精灵坐标、六足步态和触须动作
+  desktop_icons.cpp           Windows Explorer / Ubuntu DING 图标跟踪
+  overlay_window.cpp          Windows / X11 透明置顶窗口
+  png_loader.cpp              libpng RGBA 纹理加载
+tests/                        动作、碰撞和组件测试
+scripts/
+  build-windows.sh            Windows x64 交叉编译与打包
+  extract-cockroach-parts.py  器官分离和 atlas 重建
 ```
 
-## 工程结构
+组件图的生成、透明度处理和素材说明见
+[assets/README.md](assets/README.md)。
 
-```text
-assets/cockroach_parts_atlas.png  身体、六足、双触须的运行时组件图
-assets/cockroach_parts/           九张可单独检查或替换的透明 PNG
-src/cockroach.cpp                 移动状态机与 SDL2 组合绘制
-src/cockroach_parts.cpp           组件坐标、三足步态与双触须动作
-src/desktop_icons.cpp      Windows Explorer / Ubuntu DING 图标与拖拽跟踪
-src/overlay_window.cpp     Windows / X11 透明置顶窗口
-src/png_loader.cpp         基于 libpng 的 RGBA 纹理加载
-CMakeLists.txt             两个平台的构建与资源复制
-```
+## 参与贡献
 
-## 素材
+欢迎提交 Issue 和 Pull Request。修改动作逻辑时，请同时运行
+`cockroach_motion_test` 和 `cockroach_parts_test`；修改组件图后，请确保
+九个区域互不重叠，且所有可见像素保持完全不透明。
 
-主体以用户指定的 PNG 为基础补全，生成与透明度处理说明见 [assets/README.md](assets/README.md)。
+## 许可证
+
+仓库当前尚未包含 `LICENSE` 文件。正式公开分发或接受外部贡献前，建议明确
+代码许可证，并单独确认图像素材的授权范围。

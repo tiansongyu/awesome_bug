@@ -98,8 +98,18 @@ int main() {
     bool antennaeEverDiffer = false;
     float wideProbeRange = 0.0f;
     float tuckedProbeRange = 0.0f;
+    float previousLeftAntenna = 0.0f;
+    float previousRightAntenna = 0.0f;
+    int visiblyChangingAntennaFrames = 0;
+    std::array<float, 6> minimumLegRotation{};
+    std::array<float, 6> maximumLegRotation{};
+    minimumLegRotation.fill(1000.0f);
+    maximumLegRotation.fill(-1000.0f);
     for (int sample = 0; sample < 240; ++sample) {
-        const float time = sample / 30.0f;
+        // Four seconds sampled at the Windows presentation rate. This guards
+        // against technically changing poses whose per-frame movement is too
+        // small to be perceived on a 60 Hz layered window.
+        const float time = sample / 60.0f;
         const auto probing =
             calculateCockroachAnimation(
                 time * 5.0f, time, 165.0f, 0.4f, 1.0f);
@@ -109,6 +119,13 @@ int main() {
         const float left = probing.antennae[0].rotation;
         const float right = probing.antennae[1].rotation;
         antennaeEverDiffer |= std::abs(left + right) > 0.025f;
+        if (sample > 0 &&
+            (std::abs(left - previousLeftAntenna) > 0.006f ||
+             std::abs(right - previousRightAntenna) > 0.006f)) {
+            ++visiblyChangingAntennaFrames;
+        }
+        previousLeftAntenna = left;
+        previousRightAntenna = right;
         wideProbeRange = std::max(
             wideProbeRange, std::max(std::abs(left),
                                      std::abs(right)));
@@ -116,11 +133,28 @@ int main() {
             tuckedProbeRange,
             std::max(std::abs(fleeing.antennae[0].rotation),
                      std::abs(fleeing.antennae[1].rotation)));
+        for (std::size_t leg = 0; leg < probing.legs.size(); ++leg) {
+            minimumLegRotation[leg] = std::min(
+                minimumLegRotation[leg],
+                probing.legs[leg].rotation);
+            maximumLegRotation[leg] = std::max(
+                maximumLegRotation[leg],
+                probing.legs[leg].rotation);
+        }
     }
     if (!antennaeEverDiffer ||
-        wideProbeRange < tuckedProbeRange * 2.4f) {
+        wideProbeRange < tuckedProbeRange * 2.4f ||
+        visiblyChangingAntennaFrames < 180) {
         std::cerr << "independent antenna probing failed\n";
         failed = true;
+    }
+    for (std::size_t leg = 0; leg < minimumLegRotation.size(); ++leg) {
+        if (maximumLegRotation[leg] -
+                minimumLegRotation[leg] < 0.30f) {
+            std::cerr << "leg swing is not visibly animated: "
+                      << leg << '\n';
+            failed = true;
+        }
     }
 
     return failed ? 1 : 0;
