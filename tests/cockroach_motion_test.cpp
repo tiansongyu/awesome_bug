@@ -1,5 +1,6 @@
 #define SDL_MAIN_HANDLED
 #include "cockroach.h"
+#include "display_scale.h"
 
 #include <algorithm>
 #include <cmath>
@@ -17,6 +18,33 @@ bool outsideExpanded(Vec2 point, const ScreenObstacle& obstacle,
 } // namespace
 
 int main() {
+    struct ScaleCase {
+        int width;
+        int height;
+        float expectedBodyLength;
+    };
+    const ScaleCase scaleCases[]{
+        {800, 600, 99.0f},
+        {1280, 720, 110.0f},
+        {1366, 768, 117.0f},
+        {1920, 1080, 165.0f},
+        {2560, 1440, 220.0f},
+        {3440, 1440, 220.0f},
+        {3840, 2160, 330.0f},
+        {7680, 4320, 330.0f}};
+    for (const ScaleCase& scaleCase : scaleCases) {
+        const float actual = resolutionScaledBodyLength(
+            165.0f, scaleCase.width, scaleCase.height);
+        if (actual != scaleCase.expectedBodyLength) {
+            std::cerr
+                << "resolution scale failed: "
+                << scaleCase.width << 'x' << scaleCase.height
+                << " expected=" << scaleCase.expectedBodyLength
+                << " actual=" << actual << '\n';
+            return 1;
+        }
+    }
+
     const SDL_Rect desktop{0, 0, 1280, 752};
     const RoachSettings settings{165.0f, 3.0f, 0.67f};
     const std::vector<Vec2> initialPositions{
@@ -104,6 +132,36 @@ int main() {
             std::cerr
                 << "edge dwell trial failed: trial=" << trial
                 << " longestEdgeRun=" << longestEdgeRun << '\n';
+            failed = true;
+        }
+    }
+
+    // Long runs should contain both sustained fast travel and occasional
+    // visible low-speed crawling, not one nearly constant velocity.
+    {
+        Cockroach roach(
+            desktop, 290, settings, {640.0f, 376.0f});
+        Vec2 previous = roach.screenCenter();
+        int slowMovingFrames = 0;
+        int fastMovingFrames = 0;
+        for (int frame = 0; frame < 10800; ++frame) {
+            roach.update(
+                1.0f / 60.0f, {-10000.0f, -10000.0f}, {});
+            const Vec2 current = roach.screenCenter();
+            const float step = length(current - previous);
+            if (step >= 0.35f && step < 3.2f) {
+                ++slowMovingFrames;
+            }
+            if (step > 4.0f) {
+                ++fastMovingFrames;
+            }
+            previous = current;
+        }
+        if (slowMovingFrames < 100 || fastMovingFrames < 2000) {
+            std::cerr
+                << "speed variation failed: slowFrames="
+                << slowMovingFrames
+                << " fastFrames=" << fastMovingFrames << '\n';
             failed = true;
         }
     }

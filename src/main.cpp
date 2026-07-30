@@ -1,5 +1,6 @@
 #include "cockroach.h"
 #include "desktop_icons.h"
+#include "display_scale.h"
 #include "overlay_window.h"
 #include "png_loader.h"
 
@@ -32,6 +33,7 @@ struct Options {
     int count = COCKROACH_DEFAULT_COUNT;
     int maxFrames = 0;
     bool clickThrough = true;
+    bool autoBodySize = true;
     bool showHelp = false;
     std::string asset;
 };
@@ -66,7 +68,8 @@ void printUsage(const char* programName) {
     std::cout
         << "Cockroach Overlay (SDL2)\n\n"
         << "Usage: " << executable << " [options]\n"
-        << "  --size N              body length in pixels (100..260, default 165)\n"
+        << "  --size N              fixed body length in pixels (100..520)\n"
+        << "                        (Windows default: auto, 165 at 1920x1080)\n"
         << "  --speed N             speed multiplier (0.25..3, default 3)\n"
         << "  --display N           SDL display index (default 0)\n"
         << "  --count N             number of cockroaches (1..50, default "
@@ -117,6 +120,7 @@ bool parseOptions(int argc, char** argv, Options& options, std::string& error) {
                     error = "Invalid --size value";
                     return false;
                 }
+                options.autoBodySize = false;
             } else if (argument == "--speed") {
                 if (!parseNumber(argv[i], options.speed)) {
                     error = "Invalid --speed value";
@@ -146,8 +150,8 @@ bool parseOptions(int argc, char** argv, Options& options, std::string& error) {
         }
     }
 
-    if (options.bodySize < 100.0f || options.bodySize > 260.0f) {
-        error = "--size must be between 100 and 260";
+    if (options.bodySize < 100.0f || options.bodySize > 520.0f) {
+        error = "--size must be between 100 and 520";
         return false;
     }
     if (options.speed < 0.25f || options.speed > 3.0f) {
@@ -280,14 +284,19 @@ int main(int argc, char** argv) {
         SDL_Quit();
         return 1;
     }
-    SDL_Rect desktop{};
-    if (SDL_GetDisplayBounds(options.display, &desktop) != 0) {
+    SDL_Rect displayBounds{};
+    if (SDL_GetDisplayBounds(options.display, &displayBounds) != 0) {
         showError(std::string("Cannot read display bounds: ") + SDL_GetError());
         SDL_Quit();
         return 1;
     }
+    SDL_Rect desktop = displayBounds;
 #if defined(_WIN32)
     desktop = windowsWorkAreaForDisplay(desktop);
+    if (options.autoBodySize) {
+        options.bodySize = resolutionScaledBodyLength(
+            options.bodySize, displayBounds.w, displayBounds.h);
+    }
 #endif
 
     const int result = [&]() -> int {
@@ -374,9 +383,20 @@ int main(int argc, char** argv) {
         }
 
         std::cout << "Detected display " << options.display << ": "
-                  << desktop.w << 'x' << desktop.h << " at (" << desktop.x
-                  << ", " << desktop.y << ").\n"
-                  << "Running " << options.count
+                  << displayBounds.w << 'x' << displayBounds.h << " at ("
+                  << displayBounds.x << ", " << displayBounds.y << ").\n";
+#if defined(_WIN32)
+        std::cout << "Windows work area: "
+                  << desktop.w << 'x' << desktop.h << " at ("
+                  << desktop.x << ", " << desktop.y << ").\n";
+#endif
+        std::cout << "Body length: " << options.bodySize << " px";
+#if defined(_WIN32)
+        std::cout << (options.autoBodySize
+                          ? " (resolution-scaled from 1920x1080)."
+                          : " (manual override).");
+#endif
+        std::cout << "\nRunning " << options.count
                   << (options.count == 1 ? " cockroach. " : " cockroaches. ")
                   << "Press Ctrl+Alt+Q to exit.\n";
 

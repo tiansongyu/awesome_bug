@@ -29,7 +29,7 @@ public:
     Vec2 screenCenter() const { return position_; }
 
 private:
-    enum class MotionState { Pause, Wander, Startled, Flee };
+    enum class MotionState { Pause, Creep, Wander, Startled, Flee };
 
     SDL_Rect desktop_;
     int overlaySize_ = 0;
@@ -58,6 +58,7 @@ private:
     float randomRange(float low, float high);
     void chooseWanderTarget();
     void enterWander();
+    void enterCreep();
     void enterPause();
     void enterStartled(Vec2 awayFromCursor);
     void enterFlee(Vec2 awayFromCursor);

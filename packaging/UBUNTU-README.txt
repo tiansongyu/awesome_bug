@@ -6,7 +6,8 @@ bin/cockroach_overlay
 bin/cockroach_swarm_20
   20 只蟑螂版；按当前显示器分辨率分区随机生成，大小与速度略有差异。
 
-程序默认速度倍率为 3。按 Ctrl+Alt+Q 可退出。
+移动以快速巡游为主，偶尔进入带轻微速度起伏的低速潜行，之后自然加速。
+程序默认身体长度为 165 像素，默认速度倍率为 3。按 Ctrl+Alt+Q 可退出。
 
 桌面图标碰撞面向 Ubuntu GNOME X11 + Desktop Icons NG（DING）：
 桌面位于前台时，蟑螂只使用躯干碰撞体绕开图标和文字区域，
