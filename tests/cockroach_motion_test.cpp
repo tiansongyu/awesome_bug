@@ -179,6 +179,89 @@ int main() {
         }
     }
 
+    // Extended threat sensing ignores a slow distant cursor, but a fast
+    // approach triggers a short freeze followed by a burst away from it.
+    {
+        const RoachSettings extendedSettings{165.0f, 3.0f, true};
+        Cockroach roach(
+            desktop, 290, extendedSettings,
+            {640.0f, 376.0f}, 777u);
+        CockroachBehaviorInput input;
+        input.cursorScreenPosition = {940.0f, 376.0f};
+        input.cursorVelocity = {-20.0f, 0.0f};
+        roach.updateWithInput(1.0f / 60.0f, input, {});
+        if (roach.behaviorSnapshot().state ==
+            CockroachBehaviorState::Startled) {
+            std::cerr << "slow distant cursor caused a false alarm\n";
+            failed = true;
+        }
+
+        input.cursorVelocity = {-900.0f, 0.0f};
+        roach.updateWithInput(1.0f / 60.0f, input, {});
+        if (roach.behaviorSnapshot().state !=
+            CockroachBehaviorState::Startled) {
+            std::cerr << "fast approaching cursor did not startle\n";
+            failed = true;
+        }
+
+        const Vec2 positionAtAlarm = roach.screenCenter();
+        bool enteredFlee = false;
+        for (int frame = 0; frame < 12; ++frame) {
+            input.cursorVelocity = {};
+            roach.updateWithInput(1.0f / 60.0f, input, {});
+            if (roach.behaviorSnapshot().state ==
+                CockroachBehaviorState::Flee) {
+                enteredFlee = true;
+            }
+        }
+        for (int frame = 0; frame < 18; ++frame) {
+            roach.updateWithInput(1.0f / 60.0f, input, {});
+        }
+        const Vec2 awayFromCursor =
+            normalized(positionAtAlarm - input.cursorScreenPosition);
+        const Vec2 escapeDisplacement =
+            roach.screenCenter() - positionAtAlarm;
+        const float escapeProjection =
+            escapeDisplacement.x * awayFromCursor.x +
+            escapeDisplacement.y * awayFromCursor.y;
+        if (!enteredFlee || escapeProjection < 20.0f) {
+            std::cerr << "startled roach did not burst away from cursor\n";
+            failed = true;
+        }
+    }
+
+    // Keeping the cursor on top of the body must not repeatedly reset the
+    // startled timer. It may alarm again only after leaving the hysteresis
+    // radius and the cooldown has expired.
+    {
+        const RoachSettings extendedSettings{165.0f, 3.0f, true};
+        Cockroach roach(
+            desktop, 290, extendedSettings,
+            {640.0f, 376.0f}, 778u);
+        CockroachBehaviorInput input;
+        input.cursorVelocity = {1000.0f, 0.0f};
+        input.cursorScreenPosition = roach.screenCenter();
+        int startledEntries = 0;
+        CockroachBehaviorState previousState =
+            roach.behaviorSnapshot().state;
+        for (int frame = 0; frame < 240; ++frame) {
+            input.cursorScreenPosition = roach.screenCenter();
+            input.cursorVelocity = {};
+            roach.updateWithInput(1.0f / 60.0f, input, {});
+            const auto state = roach.behaviorSnapshot().state;
+            if (state == CockroachBehaviorState::Startled &&
+                previousState != CockroachBehaviorState::Startled) {
+                ++startledEntries;
+            }
+            previousState = state;
+        }
+        if (startledEntries != 1) {
+            std::cerr << "stationary nearby cursor retriggered alarm: "
+                      << startledEntries << '\n';
+            failed = true;
+        }
+    }
+
     // Place one static or moving icon directly over the torso at every screen
     // region. The pet must leave it promptly, keep moving and never teleport.
     for (std::size_t trial = 0; trial < initialPositions.size(); ++trial) {

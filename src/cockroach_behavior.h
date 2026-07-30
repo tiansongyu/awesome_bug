@@ -28,6 +28,7 @@ struct CockroachBehaviorSnapshot {
     float speed = 0.0f;
     float stateTimeRemaining = 0.0f;
     float stateElapsed = 0.0f;
+    float threatCooldown = 0.0f;
 };
 
 const char* cockroachBehaviorStateName(CockroachBehaviorState state);

@@ -423,6 +423,8 @@ int main(int argc, char** argv) {
         Uint64 previousCounter = SDL_GetPerformanceCounter();
         const double counterFrequency =
             static_cast<double>(SDL_GetPerformanceFrequency());
+        Vec2 previousCursor;
+        bool havePreviousCursor = false;
 
         while (running) {
             SDL_Event event{};
@@ -455,6 +457,23 @@ int main(int argc, char** argv) {
             SDL_GetGlobalMouseState(&mouseX, &mouseY);
             const Vec2 cursor{static_cast<float>(mouseX),
                               static_cast<float>(mouseY)};
+            CockroachBehaviorInput behaviorInput;
+            behaviorInput.cursorScreenPosition = cursor;
+            behaviorInput.cursorValid = true;
+            if (havePreviousCursor && dt > 0.0001f) {
+                behaviorInput.cursorVelocity =
+                    (cursor - previousCursor) * (1.0f / dt);
+                const float measuredSpeed =
+                    length(behaviorInput.cursorVelocity);
+                constexpr float maximumMeasuredSpeed = 6000.0f;
+                if (measuredSpeed > maximumMeasuredSpeed) {
+                    behaviorInput.cursorVelocity =
+                        normalized(behaviorInput.cursorVelocity) *
+                        maximumMeasuredSpeed;
+                }
+            }
+            previousCursor = cursor;
+            havePreviousCursor = true;
             desktopIcons.update(cursor);
             if (sharedCanvas) {
                 SDL_SetRenderDrawBlendMode(sharedOverlay->renderer(),
@@ -465,8 +484,8 @@ int main(int argc, char** argv) {
                                            SDL_BLENDMODE_BLEND);
             }
             for (const auto& instance : instances) {
-                instance->roach->update(
-                    dt, cursor, desktopIcons.obstacles());
+                instance->roach->updateWithInput(
+                    dt, behaviorInput, desktopIcons.obstacles());
                 const Vec2 center = instance->roach->screenCenter();
                 if (sharedCanvas) {
                     instance->roach->renderAt(

@@ -280,6 +280,8 @@ void Cockroach::updateBehavior(
     const std::vector<ScreenObstacle>& obstacles) {
     stateTimer_ -= dt;
     stateClock_ += dt;
+    threatCooldown_ =
+        std::max(0.0f, threatCooldown_ - dt);
     if (settings_.enableExtendedBehaviors &&
         state_ != CockroachBehaviorState::SeekCorner &&
         state_ != CockroachBehaviorState::Lurk &&
@@ -289,11 +291,40 @@ void Cockroach::updateBehavior(
 
     const Vec2 cursorDelta =
         position_ - input.cursorScreenPosition;
-    const float alarmRadius = settings_.bodyLength * 1.75f;
-    if (input.cursorValid &&
-        length(cursorDelta) < alarmRadius &&
+    const float cursorDistance = length(cursorDelta);
+    const Vec2 cursorDirection =
+        normalized(cursorDelta);
+    const float cursorSpeed = length(input.cursorVelocity);
+    const float approachSpeed =
+        dot(input.cursorVelocity, cursorDirection);
+    const float normalAlarmRadius =
+        settings_.bodyLength * 1.75f;
+    const float hardAlarmRadius =
+        settings_.bodyLength * 0.82f;
+    const float fastAlarmRadius =
+        settings_.bodyLength * 2.25f;
+    const bool rapidApproach =
+        cursorSpeed >= 420.0f || approachSpeed >= 180.0f;
+    const bool extendedThreat =
+        cursorDistance < hardAlarmRadius ||
+        (cursorDistance < fastAlarmRadius && rapidApproach);
+    const bool legacyThreat =
+        cursorDistance < normalAlarmRadius;
+    const bool threatDetected =
+        settings_.enableExtendedBehaviors
+            ? extendedThreat
+            : legacyThreat;
+    const float releaseRadius =
+        settings_.bodyLength * 2.75f;
+    if (!input.cursorValid ||
+        cursorDistance > releaseRadius) {
+        threatLatched_ = false;
+    }
+    if (input.cursorValid && threatDetected &&
+        !threatLatched_ && threatCooldown_ <= 0.0f &&
         state_ != CockroachBehaviorState::Flee &&
         state_ != CockroachBehaviorState::Startled) {
+        threatLatched_ = true;
         transitionTo(CockroachBehaviorState::Startled, cursorDelta);
     }
 
@@ -320,6 +351,9 @@ void Cockroach::updateBehavior(
         } else if (state_ == CockroachBehaviorState::Pause ||
                    state_ == CockroachBehaviorState::Flee ||
                    state_ == CockroachBehaviorState::Creep) {
+            if (state_ == CockroachBehaviorState::Flee) {
+                threatCooldown_ = randomRange(0.85f, 1.25f);
+            }
             transitionTo(CockroachBehaviorState::Wander);
         } else if (state_ == CockroachBehaviorState::SeekCorner) {
             shelterTimer_ = randomRange(8.0f, 15.0f);
@@ -1122,5 +1156,6 @@ CockroachBehaviorSnapshot Cockroach::behaviorSnapshot() const {
         heading_,
         speed_,
         std::max(0.0f, stateTimer_),
-        stateClock_};
+        stateClock_,
+        threatCooldown_};
 }
