@@ -317,7 +317,7 @@ fn visible_pixel_bounds(width: u32, height: u32, rgba: &[u8]) -> Option<PixelBou
             }
         }
     }
-    found.then_some(PixelBounds {
+    found.then(|| PixelBounds {
         x: minimum_x,
         y: minimum_y,
         width: maximum_x - minimum_x + 1,
