@@ -288,9 +288,6 @@ impl InteractionController {
             && shortcuts.alt
             && point_in_rect(self.work_area, cursor))
         .then_some(cursor);
-        if let Some(position) = bait_placement {
-            self.bait_position = Some(position);
-        }
 
         InteractionEvents {
             bait_placement,
@@ -484,5 +481,32 @@ mod tests {
             },
         );
         assert_eq!(event.bait_placement, Some(Vec2::new(-800.0, 40.0)));
+    }
+
+    #[test]
+    fn placement_request_does_not_replace_the_last_validated_bait() {
+        let work_area = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1_000.0,
+            height: 600.0,
+        };
+        let mut controller = InteractionController::new(true, work_area);
+        let previous = Vec2::new(120.0, 180.0);
+        controller.place_bait(previous);
+
+        let requested = Vec2::new(700.0, 450.0);
+        let event = controller.update(
+            requested,
+            ShortcutSample {
+                control: true,
+                alt: true,
+                bait_key: true,
+                quit_key: false,
+            },
+        );
+
+        assert_eq!(event.bait_placement, Some(requested));
+        assert_eq!(controller.bait_position(), Some(previous));
     }
 }

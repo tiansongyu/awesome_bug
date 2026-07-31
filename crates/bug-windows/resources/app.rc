@@ -1,0 +1,71 @@
+#include <windows.h>
+
+#ifndef RT_MANIFEST
+#define RT_MANIFEST 24
+#endif
+
+#define APP_ICON 1
+#define APP_MANIFEST 1
+
+APP_ICON ICON "@COCKROACH_ICON_PATH@"
+
+APP_MANIFEST RT_MANIFEST
+BEGIN
+    "<?xml version=""1.0"" encoding=""UTF-8"" standalone=""yes""?>"
+    "<assembly xmlns=""urn:schemas-microsoft-com:asm.v1"" manifestVersion=""1.0"">"
+    "  <assemblyIdentity name=""DesktopDisplay.ScriptableBugOverlay"" version=""0.1.0.0"" processorArchitecture=""amd64"" type=""win32""/>"
+    "  <description>Scriptable Bug Overlay</description>"
+    "  <trustInfo xmlns=""urn:schemas-microsoft-com:asm.v3"">"
+    "    <security>"
+    "      <requestedPrivileges>"
+    "        <requestedExecutionLevel level=""asInvoker"" uiAccess=""false""/>"
+    "      </requestedPrivileges>"
+    "    </security>"
+    "  </trustInfo>"
+    "  <compatibility xmlns=""urn:schemas-microsoft-com:compatibility.v1"">"
+    "    <application>"
+    "      <supportedOS Id=""{4f476546-9377-4f61-913b-560c21c65369}""/>"
+    "      <supportedOS Id=""{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}""/>"
+    "    </application>"
+    "  </compatibility>"
+    "  <application xmlns=""urn:schemas-microsoft-com:asm.v3"">"
+    "    <windowsSettings>"
+    "      <dpiAware xmlns=""http://schemas.microsoft.com/SMI/2005/WindowsSettings"">true/pm</dpiAware>"
+    "      <dpiAwareness xmlns=""http://schemas.microsoft.com/SMI/2016/WindowsSettings"">PerMonitorV2</dpiAwareness>"
+    "      <longPathAware xmlns=""http://schemas.microsoft.com/SMI/2016/WindowsSettings"">true</longPathAware>"
+    "    </windowsSettings>"
+    "  </application>"
+    "</assembly>"
+END
+
+1 VERSIONINFO
+FILEVERSION 0,1,0,0
+PRODUCTVERSION 0,1,0,0
+FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+#ifdef _DEBUG
+FILEFLAGS VS_FF_DEBUG
+#else
+FILEFLAGS 0x0L
+#endif
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName", "Desktop Display contributors\0"
+            VALUE "FileDescription", "Scriptable Bug Overlay (Rust + Lua)\0"
+            VALUE "FileVersion", "0.1.0\0"
+            VALUE "InternalName", "scriptable-bug-overlay\0"
+            VALUE "LegalCopyright", "Copyright (c) Desktop Display contributors\0"
+            VALUE "ProductName", "Scriptable Bug Overlay\0"
+            VALUE "ProductVersion", "0.1.0\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END

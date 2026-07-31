@@ -1,4 +1,5 @@
 #![cfg(windows)]
+#![allow(dead_code)]
 
 #[path = "../src/platform/mod.rs"]
 mod platform;
