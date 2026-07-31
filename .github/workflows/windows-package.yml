@@ -16,87 +16,96 @@ concurrency:
   group: windows-package-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  build-windows-x64:
-    name: Build Windows x64 ZIP
+  rust-core:
+    name: Rust core checks
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 20
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Install cross-compilation tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends \
-            binutils-mingw-w64-x86-64 \
-            ca-certificates \
-            cmake \
-            curl \
-            g++-mingw-w64-x86-64 \
-            libz-mingw-w64-dev \
-            make \
-            unzip
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: 1.97.1
+          components: clippy, rustfmt
 
-      - name: Cache dependency archives
-        uses: actions/cache@v5
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Lint platform-neutral runtime
+        run: cargo clippy -p bug-runtime --all-targets --locked -- -D warnings
+
+      - name: Lint Windows host's platform-neutral library
+        run: cargo clippy -p bug-windows --lib --locked -- -D warnings
+
+      - name: Test platform-neutral runtime
+        run: cargo test -p bug-runtime --locked
+
+      - name: Test Windows host's platform-neutral library
+        run: cargo test -p bug-windows --lib --locked
+
+  windows-msvc:
+    name: Windows x64 MSVC ZIP
+    needs: rust-core
+    runs-on: windows-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: 1.97.1
+          targets: x86_64-pc-windows-msvc
+          components: clippy
+
+      - name: Cache verified SDL archive
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: build-windows-deps/downloads
-          key: windows-deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/build-windows.sh') }}
+          key: sdl2-2.32.10-msvc-${{ hashFiles('scripts/build-windows-msvc.ps1') }}
 
-      - name: Build Windows package
-        run: ./scripts/build-windows.sh
+      - name: Build, test, smoke, and package
+        shell: pwsh
+        run: ./scripts/build-windows-msvc.ps1 -UiSmoke
 
-      - name: Verify ZIP package
+      - name: Verify ZIP, PE resources, and payload hashes
         id: package
-        shell: bash
+        shell: pwsh
         run: |
-          set -euo pipefail
-          archive="dist/cockroach-overlay-windows-x64.zip"
-          test -s "${archive}"
-          unzip -t "${archive}"
+          ./scripts/verify-windows-package.ps1
+          $archive = "dist/cockroach-overlay-windows-x64.zip"
+          $sha256 = (
+              Get-FileHash -LiteralPath $archive -Algorithm SHA256
+          ).Hash.ToLowerInvariant()
+          "sha256=$sha256" >> $env:GITHUB_OUTPUT
 
-          for executable in \
-            dist/windows-x64/cockroach_overlay.exe \
-            dist/windows-x64/cockroach_swarm_20.exe; do
-            x86_64-w64-mingw32-objdump -f "${executable}" |
-              grep -F "file format pei-x86-64" > /dev/null
-            x86_64-w64-mingw32-objdump -x "${executable}" |
-              grep -F "(Windows GUI)" > /dev/null
-            x86_64-w64-mingw32-objdump -h "${executable}" |
-              grep -F ".rsrc" > /dev/null
-          done
-
-          for entry in \
-            windows-x64/cockroach_overlay.exe \
-            windows-x64/cockroach_swarm_20.exe \
-            windows-x64/SDL2.dll \
-            windows-x64/assets/cockroach_parts_atlas.png \
-            windows-x64/README.txt; do
-            test -s "dist/${entry}"
-            unzip -Z1 "${archive}" "${entry}" |
-              grep -Fx "${entry}" > /dev/null
-            unzip -p "${archive}" "${entry}" | cmp - "dist/${entry}"
-          done
-
-          sha256="$(sha256sum "${archive}" | cut -d ' ' -f 1)"
-          echo "sha256=${sha256}" >> "${GITHUB_OUTPUT}"
-
-      - name: Upload Windows ZIP
+      - name: Upload verified Windows package
         id: upload
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          path: dist/cockroach-overlay-windows-x64.zip
-          archive: false
+          name: cockroach-overlay-windows-x64
+          path: |
+            dist/cockroach-overlay-windows-x64.zip
+            dist/cockroach-overlay-windows-x64.zip.sha256
           if-no-files-found: error
           retention-days: 30
 
-      - name: Add download link to summary
+      - name: Add artifact details to summary
+        shell: pwsh
         run: |
-          {
-            echo "### Windows x64 package"
-            echo
-            echo "- [Download cockroach-overlay-windows-x64.zip](${{ steps.upload.outputs.artifact-url }})"
-            echo "- SHA-256: \`${{ steps.package.outputs.sha256 }}\`"
-          } >> "${GITHUB_STEP_SUMMARY}"
+          @"
+          ### Windows x64 package
+
+          - [Download artifact](${{ steps.upload.outputs.artifact-url }})
+          - ZIP SHA-256: ``${{ steps.package.outputs.sha256 }}``
+          - Toolchain: Rust 1.97.1, MSVC x86-64, SDL 2.32.10
+          "@ >> $env:GITHUB_STEP_SUMMARY
