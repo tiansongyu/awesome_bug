@@ -63,6 +63,23 @@ fn body_overlaps(body: BodyState, obstacle: ScreenObstacle, padding: f32) -> boo
         })
 }
 
+#[test]
+fn static_overlap_visibility_probe_ignores_a_dragged_icon() {
+    let solver = make_solver(Vec2::new(500.0, 360.0), 0.0);
+    let static_icon = ScreenObstacle {
+        x: 480.0,
+        y: 330.0,
+        width: 40.0,
+        height: 60.0,
+        moving: false,
+    };
+    assert!(solver.overlaps_static(&[static_icon]));
+    assert!(!solver.overlaps_static(&[ScreenObstacle {
+        moving: true,
+        ..static_icon
+    }]));
+}
+
 fn fixture_species(shadow_alpha: u8) -> Species {
     let parts = vec![
         PartDefinition {
@@ -382,6 +399,83 @@ fn dragged_overlap_separates_with_a_strict_per_frame_budget() {
 }
 
 #[test]
+fn opposing_static_icons_allow_a_bounded_plateau_escape() {
+    let config = MotionSolverConfig {
+        world: Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1_000.0,
+            height: 600.0,
+        },
+        body_length: 165.0,
+        collider_half_width: 0.20,
+        collider_half_length: 0.43,
+    };
+    let mut solver = MotionSolver::new(config, Vec2::new(500.0, 300.0), 0.0).unwrap();
+    let obstacles = [
+        ScreenObstacle {
+            x: 430.0,
+            y: 250.0,
+            width: 65.0,
+            height: 100.0,
+            moving: false,
+        },
+        ScreenObstacle {
+            x: 505.0,
+            y: 250.0,
+            width: 65.0,
+            height: 100.0,
+            moving: false,
+        },
+        // Never overlapped at the start. Escaping the pinch must not trade it
+        // for a collision with an unrelated icon.
+        ScreenObstacle {
+            x: 430.0,
+            y: 410.0,
+            width: 140.0,
+            height: 60.0,
+            moving: false,
+        },
+    ];
+    let intent = MotionIntent {
+        direction: Vec2::new(0.0, -1.0),
+        speed: 300.0,
+        turn_rate: 8.0,
+        acceleration: 10_000.0,
+        intentionally_still: false,
+        ..MotionIntent::default()
+    };
+    assert!(body_overlaps(solver.body(), obstacles[0], 2.0));
+    assert!(body_overlaps(solver.body(), obstacles[1], 2.0));
+    assert!(!body_overlaps(solver.body(), obstacles[2], 2.0));
+
+    let budget = 420.0 / 60.0 + 1.5;
+    let mut cleared = false;
+    for _ in 0..600 {
+        let before = solver.body().position;
+        solver.step(1.0 / 60.0, intent, &obstacles);
+        let movement = solver.body().position.distance(before);
+        assert!(
+            movement <= budget + 0.001,
+            "plateau escape teleported by {movement}"
+        );
+        assert!(
+            !body_overlaps(solver.body(), obstacles[2], 2.0),
+            "escape entered an unrelated icon"
+        );
+        if !solver.overlaps_static(&obstacles[..2]) {
+            cleared = true;
+            break;
+        }
+    }
+    assert!(
+        cleared,
+        "opposing static icon pinch did not clear: {:?}",
+        solver.body()
+    );
+}
+
+#[test]
 fn edge_clamping_and_reconfiguration_never_wrap_to_the_other_side() {
     let mut solver = make_solver(Vec2::new(1_250.0, 360.0), FRAC_PI_2);
     let old_x = solver.body().position.x;
@@ -434,7 +528,6 @@ fn blocked_solver_reports_a_deterministic_24_direction_probe() {
     assert!(feedback.blocked_time >= 0.16);
     assert!(feedback.recovery_direction.length() > 0.99);
     assert!(feedback.recovery_clearance > 0.0);
-    assert_eq!(feedback.recovery_time, 0.0);
 
     let cancelled = MotionIntent {
         cancel_recovery: true,

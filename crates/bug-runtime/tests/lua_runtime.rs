@@ -213,24 +213,48 @@ return {
 }
 
 #[test]
-fn controllers_share_code_but_not_mutable_instance_state() {
-    let host = host();
+fn controllers_re_evaluate_behavior_and_fsm_without_shared_mutable_state() {
+    let fsm_source = r#"
+local module_scope_creations = 0
+return {
+    api_version = 1,
+    create = function()
+        module_scope_creations = module_scope_creations + 1
+        return { birth_order = module_scope_creations }
+    end,
+}
+"#;
+    let host = LuaHost::from_fsm_source(
+        "isolated_fsm.lua",
+        fsm_source.as_bytes(),
+        Default::default(),
+    )
+    .expect("the isolated FSM fixture must load");
     let source = format!(
         r#"{VALID_HELPERS}
-return {{
-    api_version = 1,
-    new = function()
-        local self = {{ calls = 0 }}
+local module_scope_creations = 0
+local module = {{ api_version = 1 }}
+module.new = function(config, host)
+        module_scope_creations = module_scope_creations + 1
+        module.created = (module.created or 0) + 1
+        local fsm = host.fsm.create()
+        local self = {{
+            calls = 0,
+            birth_order = module_scope_creations * 100
+                + module.created * 10
+                + fsm.birth_order,
+        }}
         function self:step(frame)
             self.calls = self.calls + 1
             local result = decision(frame, self.calls == 1 and 0.25 or nil)
-            result.target.x = result.target.x + self.calls
+            result.target.x =
+                result.target.x + self.birth_order + self.calls
             return result
         end
         function self:pose() return valid_pose() end
         return self
-    end,
-}}
+end
+return module
 "#
     );
     let module = host
@@ -251,6 +275,68 @@ return {{
     assert_ne!(first_two.target, second_one.target);
     assert_eq!(first_one.motion.initial_heading, Some(0.25));
     assert_eq!(second_one.motion.initial_heading, Some(0.25));
+}
+
+#[test]
+fn behavior_cache_reuses_only_an_identical_executable_descriptor() {
+    let host = host();
+    let source = r#"
+return {
+    api_version = 1,
+    new = function()
+        return {
+            step = function() return {} end,
+            pose = function() return {} end,
+        }
+    end,
+}
+"#;
+    let original = BehaviorDescriptor::for_test(
+        "cache_identity",
+        "cache_identity.lua",
+        source.as_bytes().to_vec(),
+        120.0,
+        false,
+        ["body"],
+    );
+    let _module = host
+        .load_behavior_descriptor(original.clone())
+        .expect("the original descriptor must load");
+    host.load_behavior_descriptor(original.clone())
+        .expect("an exact descriptor may reuse the cached module");
+
+    let mut conflicting_source = original.clone();
+    conflicting_source
+        .source
+        .extend_from_slice(b"\n-- changed\n");
+    let mut conflicting_length = original.clone();
+    conflicting_length.default_body_length = 121.0;
+    let mut conflicting_capability = original.clone();
+    conflicting_capability.supports_bait = true;
+    let mut conflicting_parts = original.clone();
+    conflicting_parts.part_indices.clear();
+    conflicting_parts
+        .part_indices
+        .insert("thorax".to_owned(), 0);
+    let mut conflicting_path = original;
+    conflicting_path.behavior_path = PathBuf::from("other.lua");
+
+    for conflict in [
+        conflicting_source,
+        conflicting_length,
+        conflicting_capability,
+        conflicting_parts,
+        conflicting_path,
+    ] {
+        let error = host
+            .load_behavior_descriptor(conflict)
+            .expect_err("conflicting executable identity must be rejected");
+        assert_eq!(error.kind, ScriptErrorKind::Contract);
+        assert!(
+            error.message.contains("different executable descriptor"),
+            "{error}"
+        );
+    }
 }
 
 #[test]
@@ -627,4 +713,41 @@ fn real_cockroach_package_runs_through_the_generic_host() {
         assert!(pose.body_rotation.is_finite());
         frame.clock += f64::from(frame.dt);
     }
+}
+
+#[test]
+fn twenty_cockroach_controllers_fit_the_default_lua_memory_budget() {
+    let host = host();
+    let species = host
+        .load_species(source_root().join("bugs/cockroach"))
+        .expect("cockroach manifest must pass the sandboxed loader");
+    let module = host
+        .load_behavior(&species)
+        .expect("cockroach behavior must load");
+    let controller_config = ControllerConfig {
+        body_length: species.body.default_length,
+        speed_multiplier: 3.0,
+        enable_extended_behaviors: false,
+        motion_limits: MotionLimits::default(),
+    };
+    let mut controllers = (0_u64..20)
+        .map(|instance| module.create_controller(instance, controller_config, constant_random(0.5)))
+        .collect::<Result<Vec<_>, _>>()
+        .expect("twenty isolated cockroach controllers must fit the default memory limit");
+
+    let mut frame = frame();
+    frame.body.length = species.body.default_length;
+    frame.features.single_instance = false;
+    frame.features.extended_behaviors = false;
+    frame.features.bait = false;
+    for controller in &mut controllers {
+        controller.step(&frame).expect("swarm controller step");
+        let pose = controller.pose(&frame).expect("swarm controller pose");
+        assert!(!controller.quarantined(), "{:?}", controller.error());
+        assert_eq!(pose.parts.len(), species.parts.len());
+    }
+    assert!(
+        host.used_memory_bytes() < host.memory_limit_bytes(),
+        "twenty live controllers exceeded the configured Lua memory limit"
+    );
 }

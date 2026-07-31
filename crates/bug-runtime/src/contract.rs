@@ -212,7 +212,6 @@ pub struct MotionFeedback {
     pub blocked_time: f32,
     pub edge_dwell_time: f32,
     pub recovery_direction: Vec2,
-    pub recovery_time: f32,
     /// Clear travel distance found by the solver's fixed-direction probe.
     pub recovery_clearance: f32,
 }

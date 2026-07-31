@@ -11,7 +11,7 @@ use crate::math::{Vec2, forward_from_heading};
 
 use super::budget::run_with_budget;
 use super::error::HOST_CALLBACK_MARKER;
-use super::module::BehaviorInner;
+use super::module::{BehaviorInner, evaluate_behavior_module, evaluate_fsm_module};
 use super::sandbox::{readonly_proxy, require_function};
 use super::value::{
     config_table, frame_table, parse_decision, parse_pose, validate_controller_config,
@@ -39,7 +39,7 @@ impl Debug for LuaController {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("LuaController")
-            .field("species", &self.behavior.species_id)
+            .field("species", &self.behavior.descriptor.species_id)
             .field("instance", &self.instance)
             .field("quarantined", &self.quarantined)
             .field("error", &self.error)
@@ -53,29 +53,26 @@ pub(crate) fn create_controller(
     mut config: ControllerConfig,
     random: RandomCallback,
 ) -> Result<LuaController, ScriptError> {
-    validate_controller_config(&mut config, behavior.default_body_length)
+    validate_controller_config(&mut config, behavior.descriptor.default_body_length)
         .map_err(|error| decorate(error, &behavior, instance))?;
     let lua = &behavior.host.lua;
     let random = Rc::new(RefCell::new(random));
-    let host_api = create_host_api(&behavior, Rc::downgrade(&random)).map_err(|error| {
+    let module = evaluate_behavior_module(&behavior.host, &behavior.descriptor)
+        .map_err(|error| decorate(error, &behavior, instance))?;
+    let fsm = evaluate_fsm_module(&behavior.host)
+        .map_err(|error| decorate(error, &behavior, instance))?;
+    let host_api = create_host_api(&behavior, Rc::downgrade(&random), fsm).map_err(|error| {
         decorate(
             ScriptError::from_mlua(error, "creating controller host API"),
             &behavior,
             instance,
         )
     })?;
-    let module: Table = lua.registry_value(&behavior.module_key).map_err(|error| {
-        decorate(
-            ScriptError::from_mlua(error, "reading behavior module registry"),
-            &behavior,
-            instance,
-        )
-    })?;
     let config_table = config_table(
         lua,
-        &behavior.species_id,
-        behavior.default_body_length,
-        behavior.supports_bait,
+        &behavior.descriptor.species_id,
+        behavior.descriptor.default_body_length,
+        behavior.descriptor.supports_bait,
         &config,
     )
     .map_err(|error| {
@@ -116,7 +113,7 @@ pub(crate) fn create_controller(
             instance,
         )
     })?;
-    let part_count = behavior.part_indices.len();
+    let part_count = behavior.descriptor.part_indices.len();
 
     Ok(LuaController {
         behavior,
@@ -154,7 +151,7 @@ impl LuaController {
             value,
             frame,
             &self.config,
-            self.behavior.supports_bait,
+            self.behavior.descriptor.supports_bait,
             self.has_successful_step,
             self.behavior.host.reader_limits(),
         ) {
@@ -193,8 +190,8 @@ impl LuaController {
         let pose = match parse_pose(
             value,
             frame,
-            &self.behavior.part_indices,
-            self.behavior.part_indices.len(),
+            &self.behavior.descriptor.part_indices,
+            self.behavior.descriptor.part_indices.len(),
             self.behavior.host.reader_limits(),
         ) {
             Ok(pose) => pose,
@@ -228,6 +225,21 @@ impl LuaController {
         self.config
     }
 
+    /// Updates display-derived geometry without recreating the Lua
+    /// controller or disturbing its RNG stream.
+    ///
+    /// Scripts receive the current length on every frame through
+    /// `frame.body.length`; this method keeps the host-side frame contract in
+    /// sync after a monitor/DPI reconfiguration.
+    pub fn reconfigure_body_length(&mut self, body_length: f32) -> Result<(), ScriptError> {
+        let mut updated = self.config;
+        updated.body_length = body_length;
+        validate_controller_config(&mut updated, self.behavior.descriptor.default_body_length)
+            .map_err(|error| self.decorate(error))?;
+        self.config = updated;
+        Ok(())
+    }
+
     fn call_method(&self, method_name: &str, frame: &FrameInput) -> Result<Value, ScriptError> {
         let Some(controller_key) = &self.controller_key else {
             return Err(self.decorate(ScriptError::new(
@@ -243,12 +255,13 @@ impl LuaController {
                 format!("reading controller for {method_name}"),
             ))
         })?;
-        let frame = frame_table(lua, frame, self.behavior.supports_bait).map_err(|error| {
-            self.decorate(ScriptError::from_mlua(
-                error,
-                format!("building Lua {method_name} frame"),
-            ))
-        })?;
+        let frame =
+            frame_table(lua, frame, self.behavior.descriptor.supports_bait).map_err(|error| {
+                self.decorate(ScriptError::from_mlua(
+                    error,
+                    format!("building Lua {method_name} frame"),
+                ))
+            })?;
         run_with_budget(lua, self.behavior.host.options.instruction_limit, || {
             let method: Function = require_function(&controller, method_name)?;
             method.call((controller, frame))
@@ -322,6 +335,7 @@ impl Drop for LuaController {
 fn create_host_api(
     behavior: &BehaviorInner,
     weak_random: Weak<RefCell<RandomCallback>>,
+    fsm: Table,
 ) -> mlua::Result<Table> {
     let lua = &behavior.host.lua;
     let methods = lua.create_table()?;
@@ -410,7 +424,6 @@ fn create_host_api(
             Ok(wrapped - PI)
         })?,
     )?;
-    let fsm: Table = lua.registry_value(&behavior.host.fsm_key)?;
     methods.raw_set("fsm", fsm)?;
     readonly_proxy(lua, methods, "host API")
 }
@@ -435,8 +448,12 @@ fn canonical_f32_zero(value: f32) -> f32 {
 }
 
 fn decorate(error: ScriptError, behavior: &BehaviorInner, instance: u64) -> ScriptError {
-    error
-        .with_species(&behavior.species_id)
-        .with_instance(instance)
-        .with_path(&behavior.behavior_path)
+    let error = error
+        .with_species(&behavior.descriptor.species_id)
+        .with_instance(instance);
+    if error.path.is_some() {
+        error
+    } else {
+        error.with_path(&behavior.descriptor.behavior_path)
+    }
 }

@@ -386,12 +386,6 @@ pub(crate) fn validate_frame(
         "frame.feedback.recovery_direction",
     )?;
     finite_range(
-        feedback.recovery_time,
-        0.0,
-        1_000_000.0,
-        "frame.feedback.recovery_time",
-    )?;
-    finite_range(
         feedback.recovery_clearance,
         0.0,
         (MAXIMUM_COORDINATE * 3.0) as f32,
@@ -534,10 +528,6 @@ pub(crate) fn frame_table(
                 (
                     "recovery_direction",
                     Value::Table(vector_table(lua, frame.feedback.recovery_direction)?),
-                ),
-                (
-                    "recovery_time",
-                    Value::Number(f64::from(frame.feedback.recovery_time)),
                 ),
                 (
                     "recovery_clearance",

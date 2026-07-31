@@ -62,59 +62,27 @@ local function normalized(value)
 end
 
 local function position_of(value)
-    if type(value) ~= "table" then
-        return vec()
-    end
-    if type(value.position) == "table" then
-        local x, y = xy(value.position)
-        return vec(x, y)
-    end
-    local x, y = xy(value)
-    return vec(x, y)
+    return vec(value.x, value.y)
 end
 
 local function velocity_of(value)
-    if type(value) ~= "table" then
-        return vec()
-    end
-    if type(value.velocity) == "table" then
-        local x, y = xy(value.velocity)
-        return vec(x, y)
-    end
-    return vec(value.vx or 0.0, value.vy or 0.0)
+    return vec(value.vx, value.vy)
 end
 
 local function world_rect(frame)
-    local world = frame.world or {}
-    return {
-        x = world.x or world.left or 0.0,
-        y = world.y or world.top or 0.0,
-        width = world.width or world.w or 0.0,
-        height = world.height or world.h or 0.0,
-    }
+    return frame.world
 end
 
 local function body_position(frame)
-    return position_of(frame.body or {})
+    return position_of(frame.body)
 end
 
-local function body_length(frame, config)
-    local body = frame.body or {}
-    return body.length or body.body_length
-        or config.body_length or config.default_body_length or 165.0
+local function body_length(frame)
+    return frame.body.length
 end
 
-local function feature_enabled(frame, config, name)
-    local features = frame.features or {}
-    local value = features[name]
-    if value ~= nil then
-        return value == true
-    end
-    value = config[name]
-    if value == nil and name == "extended_behaviors" then
-        value = config.enable_extended_behaviors
-    end
-    return value == true
+local function feature_enabled(frame, name)
+    return frame.features[name] == true
 end
 
 local function forward(heading)
@@ -165,16 +133,11 @@ local function new_controller(config, host)
         return host.random(tag, low, high)
     end
 
-    -- The final Rust host uses stock Lua 5.4 numbers (double) while the
-    -- migration oracle used Lua's float ABI.  Quantize persistent controller
-    -- state at the same boundaries so state-transition frames remain stable.
-    -- The guarded fallback keeps the temporary C++ oracle byte-for-byte
-    -- unchanged until the migration gate is retired.
+    -- The Rust host uses stock Lua 5.4 numbers (double). Quantize persistent
+    -- controller state at the historical float boundaries so deterministic
+    -- seeds continue to produce the frozen v1 behavior.
     local function f32(value)
-        if type(host.f32) == "function" then
-            return host.f32(value)
-        end
-        return value
+        return host.f32(value)
     end
 
     local function f32_vec(value)
@@ -183,24 +146,16 @@ local function new_controller(config, host)
     end
 
     local function clamp(value, low, high)
-        if host.clamp then
-            return host.clamp(value, low, high)
-        end
-        return math.max(low, math.min(high, value))
+        return host.clamp(value, low, high)
     end
 
     local function wrap_angle(value)
-        if host.wrap_angle then
-            return host.wrap_angle(value)
-        end
-        while value > pi do value = value - 2.0 * pi end
-        while value < -pi do value = value + 2.0 * pi end
-        return value
+        return host.wrap_angle(value)
     end
 
     local function choose_wander_target(frame)
         local world = world_rect(frame)
-        local body = body_length(frame, config)
+        local body = body_length(frame)
         -- These values become tagged-RNG range bounds. Reproduce the old
         -- float-ABI operation boundaries explicitly so the recorded C++ tape
         -- remains bit-exact under stock Lua 5.4's double ABI.
@@ -229,7 +184,7 @@ local function new_controller(config, host)
 
     local function computed_corners(frame)
         local world = world_rect(frame)
-        local body = body_length(frame, config)
+        local body = body_length(frame)
         local half_length = body * 0.43
         local half_width = body * 0.20
         local margin = math.sqrt(
@@ -503,9 +458,9 @@ local function new_controller(config, host)
     local function update_behavior(frame)
         local dt = frame.dt
         local extended =
-            feature_enabled(frame, config, "extended_behaviors")
+            feature_enabled(frame, "extended_behaviors")
         local position = body_position(frame)
-        local body = body_length(frame, config)
+        local body = body_length(frame)
         local cursor = frame.cursor or {}
         local cursor_position = position_of(cursor)
         local cursor_velocity = velocity_of(cursor)
@@ -536,9 +491,10 @@ local function new_controller(config, host)
         local extended_threat =
             cursor_distance < body * 0.82
             or (cursor_distance < body * 2.25 and rapid_approach)
-        local legacy_threat = cursor_distance < body * 1.75
+        local proximity_threat = cursor_distance < body * 1.75
         local threat_detected =
-            extended and extended_threat or (not extended and legacy_threat)
+            extended and extended_threat
+            or (not extended and proximity_threat)
         local cursor_valid = cursor.valid ~= false
 
         if not cursor_valid or cursor_distance > body * 2.75 then
@@ -666,10 +622,7 @@ local function new_controller(config, host)
     end
 
     local function update_host_recovery(frame)
-        local feedback = frame.feedback or {}
-        if feedback.recovery_clearance == nil then
-            return
-        end
+        local feedback = frame.feedback
 
         local dt = finite_or(frame.dt, 0.0)
         self.recovery_timer = f32(
@@ -695,56 +648,34 @@ local function new_controller(config, host)
     end
 
     local function recovery_feedback(frame)
-        local feedback = frame.feedback or {}
-        if feedback.recovery_clearance ~= nil then
-            local stopped_state =
-                is("lurk")
-                or is("groom")
-                or is("feeding")
-                or is("startled")
-            if stopped_state then
-                self.recovery_timer = f32(0.0)
-                return false, vec()
-            end
-            return self.recovery_timer > 0.0,
-                normalized(self.recovery_direction)
+        local stopped_state =
+            is("lurk")
+            or is("groom")
+            or is("feeding")
+            or is("startled")
+        if stopped_state then
+            self.recovery_timer = f32(0.0)
+            return false, vec()
         end
-
-        local recovery = feedback.recovery or {}
-        local time = finite_or(
-            recovery.time_remaining or recovery.remaining
-                or feedback.recovery_time_remaining
-                or feedback.recovery_time,
-            0.0)
-        local active = recovery.active == true or time > 0.0
-        local direction = recovery.direction
-            or feedback.recovery_direction or vec()
-        return active, normalized(direction)
+        return self.recovery_timer > 0.0,
+            normalized(self.recovery_direction)
     end
 
     local function avoidance_sensors(frame)
-        local sensors = frame.sensors or {}
-        local avoidance = sensors.avoidance or sensors.nearest_obstacle or {}
-        local direction = avoidance.direction
-            or avoidance.steering_direction
-            or sensors.avoidance_direction
-            or vec()
-        local urgency = finite_or(
-            avoidance.urgency or sensors.obstacle_urgency, 0.0)
-        local moving_urgency = finite_or(
-            avoidance.moving_urgency
-                or sensors.moving_obstacle_urgency,
-            0.0)
-        local overlapping =
-            sensors.overlapping == true or avoidance.overlapping == true
+        local sensors = frame.sensors
+        local direction = sensors.avoidance_direction
+        local urgency = finite_or(sensors.obstacle_urgency, 0.0)
+        local moving_urgency =
+            finite_or(sensors.moving_obstacle_urgency, 0.0)
+        local overlapping = sensors.overlapping == true
         return normalized(direction), urgency, moving_urgency, overlapping
     end
 
     local function steer(frame)
         local dt = frame.dt
-        local body = frame.body or {}
+        local body = frame.body
         local position = body_position(frame)
-        local body_size = body_length(frame, config)
+        local body_size = body_length(frame)
         local heading = body.heading or self.initial_heading or 0.0
         local speed = body.speed or 0.0
         local multiplier = config.speed_multiplier or 1.0
@@ -948,8 +879,8 @@ local function new_controller(config, host)
                 acceleration, 980.0 + moving_urgency * 520.0)
         end
 
-        -- Match the legacy ordering: scuttle uses the speed resulting from
-        -- this frame's acceleration, while the gait clock advances last.
+        -- Scuttle uses the speed resulting from this frame's acceleration,
+        -- while the gait clock advances last. This ordering is deterministic.
         local predicted_speed = speed + clamp(
             desired_speed - speed, -acceleration * dt, acceleration * dt)
         if stop_immediately then
@@ -1003,7 +934,7 @@ local function new_controller(config, host)
 
     function self:pose(frame)
         local body = frame.body or {}
-        local size = body_length(frame, config)
+        local size = body_length(frame)
         local speed = body.speed or 0.0
         local multiplier = config.speed_multiplier or 1.0
         local motion = clamp(

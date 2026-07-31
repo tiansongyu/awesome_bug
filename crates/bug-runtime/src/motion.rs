@@ -74,6 +74,7 @@ pub struct MotionSolver {
     edge_dwell_time: f32,
     step_count: u64,
     feedback: MotionFeedback,
+    overlap_escape_direction: Vec2,
 }
 
 impl MotionSolver {
@@ -98,6 +99,7 @@ impl MotionSolver {
             edge_dwell_time: 0.0,
             step_count: 0,
             feedback: MotionFeedback::default(),
+            overlap_escape_direction: Vec2::ZERO,
         })
     }
 
@@ -108,6 +110,7 @@ impl MotionSolver {
         validate_config(config)?;
         self.config = config;
         self.position = clamp_to_world(self.config, self.position, self.heading);
+        self.overlap_escape_direction = Vec2::ZERO;
         Ok(())
     }
 
@@ -124,6 +127,26 @@ impl MotionSolver {
     #[must_use]
     pub const fn feedback(&self) -> MotionFeedback {
         self.feedback
+    }
+
+    /// Reports whether the current body intersects any static hard obstacle.
+    ///
+    /// The Windows host uses this only as a visibility gate when Explorer
+    /// publishes a new snapshot underneath an existing pet. Motion and
+    /// separation remain governed by `step`.
+    #[must_use]
+    pub fn overlaps_static(&self, obstacles: &[ScreenObstacle]) -> bool {
+        obstacles.iter().copied().any(|obstacle| {
+            valid_obstacle(obstacle)
+                && !obstacle.moving
+                && body_overlaps_obstacle(
+                    self.config,
+                    self.position,
+                    self.heading,
+                    obstacle,
+                    STATIC_PADDING,
+                )
+        })
     }
 
     #[must_use]
@@ -338,9 +361,6 @@ impl MotionSolver {
             blocked_time: self.blocked_motion_time,
             edge_dwell_time: self.edge_dwell_time,
             recovery_direction,
-            // Recovery duration is behavior policy and intentionally lives in
-            // Lua.  This legacy field remains zero for the v1 table contract.
-            recovery_time: 0.0,
             recovery_clearance,
         };
         self.feedback
@@ -476,13 +496,145 @@ impl MotionSolver {
                 }
 
                 if best_improvement <= 0.0001 {
-                    break;
+                    // Two opposing obstacles can form a penetration plateau:
+                    // every short move reduces one overlap by exactly the
+                    // amount it deepens the other. Requiring an immediate
+                    // scalar improvement leaves the body hidden forever.
+                    //
+                    // Persist a geometry-probed route to clear space and take
+                    // one bounded step along it. A short step may temporarily
+                    // deepen one of the overlaps in a symmetric pinch, but it
+                    // can never enter a previously unrelated static obstacle
+                    // or exceed the per-frame separation budget.
+                    if self.overlap_escape_direction.length_squared() < 0.5 {
+                        let Some(direction) = self.overlap_escape_probe(obstacles) else {
+                            break;
+                        };
+                        self.overlap_escape_direction = direction;
+                    }
+                    let candidate = clamp_to_world(
+                        self.config,
+                        self.position + self.overlap_escape_direction * remaining,
+                        self.heading,
+                    );
+                    let distance = candidate.distance(self.position);
+                    if distance < 0.01
+                        || enters_unrelated_static(
+                            self.config,
+                            self.position,
+                            candidate,
+                            self.heading,
+                            obstacles,
+                        )
+                    {
+                        self.overlap_escape_direction = Vec2::ZERO;
+                        break;
+                    }
+                    self.position = candidate;
+                    remaining -= distance;
+                    continue;
                 }
                 self.position = best_position;
                 remaining -= best_distance;
             }
         }
+        if !collides_with_any(self.config, self.position, self.heading, obstacles) {
+            self.overlap_escape_direction = Vec2::ZERO;
+        }
         saw_overlap
+    }
+
+    /// Finds the shortest deterministic path that exits only the obstacles
+    /// covering the body at the start of the probe.
+    ///
+    /// Sampling is a route proof, not an integration step: `step` still
+    /// advances by at most the separation budget. Rejecting any direction
+    /// that touches a previously unrelated obstacle prevents an escape from
+    /// trading one desktop-icon collision for another.
+    fn overlap_escape_probe(&self, obstacles: &[ScreenObstacle]) -> Option<Vec2> {
+        let mut initially_overlapping = vec![false; obstacles.len()];
+        let mut overlap_count = 0_usize;
+        for (index, &obstacle) in obstacles.iter().enumerate() {
+            if valid_obstacle(obstacle)
+                && body_overlaps_obstacle(
+                    self.config,
+                    self.position,
+                    self.heading,
+                    obstacle,
+                    obstacle_padding(obstacle),
+                )
+            {
+                initially_overlapping[index] = true;
+                overlap_count += 1;
+            }
+        }
+        if overlap_count == 0 {
+            return None;
+        }
+
+        let bounds = legal_center_bounds(self.config, self.heading);
+        let world_center = Vec2::new(
+            self.config.world.x + self.config.world.width * 0.5,
+            self.config.world.y + self.config.world.height * 0.5,
+        );
+        let inward = (world_center - self.position).normalized();
+        let current_forward = forward_from_heading(self.heading);
+        let probe_step = (self.config.body_length * 0.045).max(6.0);
+        let probe_distance = (self.config.body_length * 3.2)
+            .max(560.0)
+            .min(self.config.world.width.hypot(self.config.world.height));
+        let mut best_direction = None;
+        let mut best_distance = f32::INFINITY;
+        let mut best_bias = f32::NEG_INFINITY;
+
+        for index in 0..PROBE_DIRECTION_COUNT {
+            let angle = self.heading + TAU * index as f32 / PROBE_DIRECTION_COUNT as f32;
+            let direction = Vec2::new(angle.cos(), angle.sin());
+            let mut distance = probe_step;
+            while distance <= probe_distance {
+                let sample = self.position + direction * distance;
+                if !bounds.contains(sample) {
+                    break;
+                }
+
+                let mut blocked = false;
+                let mut entered_unrelated = false;
+                for (obstacle_index, &obstacle) in obstacles.iter().enumerate() {
+                    if !valid_obstacle(obstacle)
+                        || !body_overlaps_obstacle(
+                            self.config,
+                            sample,
+                            self.heading,
+                            obstacle,
+                            obstacle_padding(obstacle),
+                        )
+                    {
+                        continue;
+                    }
+                    blocked = true;
+                    if !initially_overlapping[obstacle_index] {
+                        entered_unrelated = true;
+                        break;
+                    }
+                }
+                if entered_unrelated {
+                    break;
+                }
+                if !blocked {
+                    let bias = direction.dot(inward) * 2.0 + direction.dot(current_forward);
+                    if distance < best_distance - 0.001
+                        || ((distance - best_distance).abs() <= 0.001 && bias > best_bias)
+                    {
+                        best_direction = Some(direction);
+                        best_distance = distance;
+                        best_bias = bias;
+                    }
+                    break;
+                }
+                distance += probe_step;
+            }
+        }
+        best_direction.map(Vec2::normalized)
     }
 
     fn recovery_probe(
@@ -801,7 +953,8 @@ fn enters_unrelated_static(
         valid_obstacle(obstacle)
             && !obstacle.moving
             && !body_overlaps_obstacle(config, from, heading, obstacle, STATIC_PADDING)
-            && body_overlaps_obstacle(config, to, heading, obstacle, STATIC_PADDING)
+            && swept_collision_entry(config, from, to - from, heading, obstacle, STATIC_PADDING)
+                .is_some()
     })
 }
 

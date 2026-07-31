@@ -271,13 +271,21 @@ fn parse_input(fields: &mut Fields<'_>) -> FrameInput {
         nearest_away: fields.vec2("sensors.nearest_away"),
         nearest_distance: fields.f32("sensors.nearest_distance"),
     };
+    let actual_displacement = fields.vec2("feedback.actual_displacement");
+    let overlapping = fields.boolean("feedback.overlapping");
+    let blocked_time = fields.f32("feedback.blocked_time");
+    let edge_dwell_time = fields.f32("feedback.edge_dwell_time");
+    let recovery_direction = fields.vec2("feedback.recovery_direction");
+    // The frozen C++ v1 row contained a behavior-owned recovery timer. The
+    // final contract keeps duration policy in Lua, so consume the provenance
+    // field without reintroducing it into `MotionFeedback`.
+    let _recorded_recovery_time = fields.f32("feedback.recovery_time");
     let feedback = MotionFeedback {
-        actual_displacement: fields.vec2("feedback.actual_displacement"),
-        overlapping: fields.boolean("feedback.overlapping"),
-        blocked_time: fields.f32("feedback.blocked_time"),
-        edge_dwell_time: fields.f32("feedback.edge_dwell_time"),
-        recovery_direction: fields.vec2("feedback.recovery_direction"),
-        recovery_time: fields.f32("feedback.recovery_time"),
+        actual_displacement,
+        overlapping,
+        blocked_time,
+        edge_dwell_time,
+        recovery_direction,
         recovery_clearance: 0.0,
     };
     let features = FeatureFlags {
