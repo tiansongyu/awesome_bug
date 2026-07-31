@@ -141,6 +141,7 @@ Cockroach::Cockroach(SDL_Rect desktopBounds, int overlaySize,
 }
 
 float Cockroach::randomRange(float low, float high) {
+    ++randomDrawCount_;
     std::uniform_real_distribution<float> distribution(low, high);
     return distribution(rng_);
 }
@@ -1302,4 +1303,27 @@ CockroachBehaviorSnapshot Cockroach::behaviorSnapshot() const {
         stateClock_,
         threatCooldown_,
         foodConsumedThisFrame_};
+}
+
+CockroachDebugSnapshot Cockroach::debugSnapshot() const {
+    return {
+        behaviorSnapshot(),
+        desiredHeading_,
+        desiredSpeed_,
+        stateTimer_,
+        gaitClock_,
+        behaviorClock_,
+        obstacleEscapeTimer_,
+        blockedMotionTimer_,
+        edgeDwellTimer_,
+        recoveryTimer_,
+        shelterTimer_,
+        foodRetryTimer_,
+        pendingFleeDirection_,
+        feedingBaitPosition_,
+        obstacleEscapeDirection_,
+        recoveryDirection_,
+        threatLatched_,
+        groomedDuringRest_,
+        randomDrawCount_};
 }

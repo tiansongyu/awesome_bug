@@ -166,6 +166,41 @@ if(BUILD_TESTING)
             -static-libgcc -static-libstdc++)
     endif()
     add_test(NAME cockroach_parts COMMAND cockroach_parts_test)
+
+    add_executable(legacy_trace_generator
+        tests/legacy_trace_generator.cpp
+        src/cockroach.cpp
+        src/cockroach_parts.cpp
+    )
+    target_include_directories(legacy_trace_generator PRIVATE src)
+    if(TARGET SDL2::SDL2)
+        target_link_libraries(legacy_trace_generator PRIVATE SDL2::SDL2)
+    else()
+        target_include_directories(legacy_trace_generator
+            PRIVATE ${SDL2_INCLUDE_DIRS})
+        target_link_libraries(legacy_trace_generator
+            PRIVATE ${SDL2_LIBRARIES})
+    endif()
+    if(MSVC)
+        target_compile_options(legacy_trace_generator
+            PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(legacy_trace_generator
+            PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+    if(MINGW)
+        target_link_options(legacy_trace_generator PRIVATE
+            -static-libgcc -static-libstdc++)
+    endif()
+    if(WIN32)
+        set(LEGACY_GOLDEN_PLATFORM windows-mingw)
+    else()
+        set(LEGACY_GOLDEN_PLATFORM linux-gcc)
+    endif()
+    add_test(
+        NAME legacy_characterization
+        COMMAND legacy_trace_generator --verify
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/golden/legacy-v1/${LEGACY_GOLDEN_PLATFORM}")
 endif()
 
 install(TARGETS cockroach_overlay cockroach_swarm_20 RUNTIME DESTINATION bin)

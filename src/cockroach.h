@@ -7,6 +7,7 @@
 
 #include <SDL.h>
 
+#include <cstdint>
 #include <optional>
 #include <random>
 
@@ -33,6 +34,7 @@ public:
 
     Vec2 screenCenter() const { return position_; }
     CockroachBehaviorSnapshot behaviorSnapshot() const;
+    CockroachDebugSnapshot debugSnapshot() const;
 
 private:
     SDL_Rect desktop_;
@@ -64,6 +66,7 @@ private:
     bool threatLatched_ = false;
     bool groomedDuringRest_ = false;
     bool foodConsumedThisFrame_ = false;
+    std::uint64_t randomDrawCount_ = 0;
     Vec2 recoveryDirection_;
     CockroachBehaviorState state_ = CockroachBehaviorState::Wander;
 
