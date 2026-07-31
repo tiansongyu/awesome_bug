@@ -13,7 +13,7 @@ APP_MANIFEST RT_MANIFEST
 BEGIN
     "<?xml version=""1.0"" encoding=""UTF-8"" standalone=""yes""?>"
     "<assembly xmlns=""urn:schemas-microsoft-com:asm.v1"" manifestVersion=""1.0"">"
-    "  <assemblyIdentity name=""DesktopDisplay.ScriptableBugOverlay"" version=""0.1.0.0"" processorArchitecture=""amd64"" type=""win32""/>"
+    "  <assemblyIdentity name=""DesktopDisplay.ScriptableBugOverlay"" version=""@APP_VERSION_QUAD@"" processorArchitecture=""amd64"" type=""win32""/>"
     "  <description>Scriptable Bug Overlay</description>"
     "  <trustInfo xmlns=""urn:schemas-microsoft-com:asm.v3"">"
     "    <security>"
@@ -39,8 +39,8 @@ BEGIN
 END
 
 1 VERSIONINFO
-FILEVERSION 0,1,0,0
-PRODUCTVERSION 0,1,0,0
+FILEVERSION @APP_VERSION_COMMA@
+PRODUCTVERSION @APP_VERSION_COMMA@
 FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
 #ifdef _DEBUG
 FILEFLAGS VS_FF_DEBUG
@@ -57,11 +57,11 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "Desktop Display contributors\0"
             VALUE "FileDescription", "Scriptable Bug Overlay (Rust + Lua)\0"
-            VALUE "FileVersion", "0.1.0\0"
+            VALUE "FileVersion", "@APP_VERSION@\0"
             VALUE "InternalName", "scriptable-bug-overlay\0"
             VALUE "LegalCopyright", "Copyright (c) Desktop Display contributors\0"
             VALUE "ProductName", "Scriptable Bug Overlay\0"
-            VALUE "ProductVersion", "0.1.0\0"
+            VALUE "ProductVersion", "@APP_VERSION@\0"
         END
     END
     BLOCK "VarFileInfo"

@@ -7,6 +7,7 @@ const WINDOWS_BINARIES: [&str; 2] = ["cockroach_overlay", "cockroach_swarm_20"];
 fn main() {
     println!("cargo:rerun-if-changed=resources/app.rc");
     println!("cargo:rerun-if-changed=../../packaging/cockroach.ico");
+    println!("cargo:rerun-if-env-changed=CARGO_PKG_VERSION");
     println!("cargo:rerun-if-env-changed=SDL2_LIB_DIR");
     println!("cargo:rerun-if-env-changed=SDL2_INCLUDE_PATH");
 
@@ -64,9 +65,18 @@ fn compile_windows_resources() {
     let template_path = manifest_directory.join("resources/app.rc");
     let template = fs::read_to_string(&template_path)
         .unwrap_or_else(|error| panic!("cannot read {}: {error}", template_path.display()));
-    let rendered = template.replace("@COCKROACH_ICON_PATH@", &resource_path(&icon));
-    if rendered.contains("@COCKROACH_ICON_PATH@") {
-        panic!("unresolved icon placeholder in {}", template_path.display());
+    let version = required_environment("CARGO_PKG_VERSION");
+    let (version_quad, version_comma) = windows_version(&version);
+    let rendered = template
+        .replace("@COCKROACH_ICON_PATH@", &resource_path(&icon))
+        .replace("@APP_VERSION_QUAD@", &version_quad)
+        .replace("@APP_VERSION_COMMA@", &version_comma)
+        .replace("@APP_VERSION@", &version);
+    if rendered.contains("@COCKROACH_ICON_PATH@") || rendered.contains("@APP_VERSION") {
+        panic!(
+            "unresolved resource placeholder in {}",
+            template_path.display()
+        );
     }
 
     let generated_resource = output_directory.join("cockroach-app.rc");
@@ -80,6 +90,27 @@ fn compile_windows_resources() {
     embed_resource::compile(&generated_resource, embed_resource::NONE)
         .manifest_required()
         .unwrap_or_else(|error| panic!("{error}"));
+}
+
+fn windows_version(version: &str) -> (String, String) {
+    let numeric_end = version.find(['-', '+']).unwrap_or(version.len());
+    let numeric = &version[..numeric_end];
+    let components = numeric
+        .split('.')
+        .map(|component| {
+            component
+                .parse::<u16>()
+                .unwrap_or_else(|_| panic!("package version component is not a u16: {component}"))
+        })
+        .collect::<Vec<_>>();
+    if components.len() != 3 {
+        panic!("package version must contain major.minor.patch: {version}");
+    }
+
+    (
+        format!("{}.{}.{}.0", components[0], components[1], components[2]),
+        format!("{},{},{},0", components[0], components[1], components[2]),
+    )
 }
 
 fn resource_path(path: &Path) -> String {
