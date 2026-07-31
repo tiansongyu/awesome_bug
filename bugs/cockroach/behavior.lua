@@ -156,6 +156,8 @@ local function new_controller(config, host)
         speed_pulse_phase = 0.0,
         desired_speed = 0.0,
         initial_heading = nil,
+        recovery_timer = 0.0,
+        recovery_direction = vec(),
         recovery_was_active = false,
     }
 
@@ -620,8 +622,51 @@ local function new_controller(config, host)
         return consume_bait
     end
 
+    local function update_host_recovery(frame)
+        local feedback = frame.feedback or {}
+        if feedback.recovery_clearance == nil then
+            return
+        end
+
+        local dt = finite_or(frame.dt, 0.0)
+        self.recovery_timer =
+            math.max(0.0, self.recovery_timer - math.max(0.0, dt))
+        if self.recovery_timer > 0.0 then
+            return
+        end
+
+        local clearance =
+            finite_or(feedback.recovery_clearance, 0.0)
+        local blocked_time = finite_or(feedback.blocked_time, 0.0)
+        local edge_dwell_time =
+            finite_or(feedback.edge_dwell_time, 0.0)
+        local direction =
+            normalized(feedback.recovery_direction or vec())
+        if clearance > 0.0
+            and (blocked_time >= 0.16 or edge_dwell_time >= 0.72)
+            and length(direction) > 0.001 then
+            self.recovery_direction = direction
+            self.recovery_timer =
+                random("solver.recovery_duration", 0.48, 0.72)
+        end
+    end
+
     local function recovery_feedback(frame)
         local feedback = frame.feedback or {}
+        if feedback.recovery_clearance ~= nil then
+            local stopped_state =
+                is("lurk")
+                or is("groom")
+                or is("feeding")
+                or is("startled")
+            if stopped_state then
+                self.recovery_timer = 0.0
+                return false, vec()
+            end
+            return self.recovery_timer > 0.0,
+                normalized(self.recovery_direction)
+        end
+
         local recovery = feedback.recovery or {}
         local time = finite_or(
             recovery.time_remaining or recovery.remaining
@@ -897,6 +942,7 @@ local function new_controller(config, host)
         local initial_heading = self.initial_heading
         self.initial_heading = nil
         self.behavior_clock = self.behavior_clock + frame.dt
+        update_host_recovery(frame)
         local consume_bait = update_behavior(frame)
         local motion = steer(frame)
         motion.initial_heading = initial_heading
