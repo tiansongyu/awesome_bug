@@ -10,7 +10,7 @@ Copy this directory, rename it, and edit the three self-contained files:
 
 The runtime loads `manifest.lua` as data. Paths must be relative files inside
 the species directory, part names must be unique, and atlas rectangles must be
-in bounds. A new species never requires a C++/Rust subclass or a main-loop
+in bounds. A new species never requires native subclassing or a main-loop
 change.
 
 Behavior ABI v1 receives only validated data and a read-only `host` table:

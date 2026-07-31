@@ -1,4 +1,4 @@
--- Copy this directory and replace the atlas data. No C++ subclass or main-loop
+-- Copy this directory and replace the atlas data. No native host or main-loop
 -- change is required for a new species.
 return {
     api_version = 1,
