@@ -35,23 +35,50 @@ $shell = New-Object -ComObject Shell.Application
 $shell.MinimizeAll()
 Start-Sleep -Seconds 2
 
-if (-not [BugProbeInput]::SetCursorPos($SourceX, $SourceY)) {
-    throw "SetCursorPos failed for the source point."
-}
-Start-Sleep -Milliseconds 300
-[BugProbeInput]::mouse_event($leftDown, 0, 0, 0, [UIntPtr]::Zero)
+$buttonIsDown = $false
+try {
+    if (-not [BugProbeInput]::SetCursorPos($SourceX, $SourceY)) {
+        throw "SetCursorPos failed for the source point."
+    }
+    Start-Sleep -Milliseconds 300
+    [BugProbeInput]::mouse_event($leftDown, 0, 0, 0, [UIntPtr]::Zero)
+    $buttonIsDown = $true
 
-$steps = 24
-for ($step = 1; $step -le $steps; $step++) {
-    $x = [Math]::Round($SourceX + ($TargetX - $SourceX) * $step / $steps)
-    $y = [Math]::Round($SourceY + ($TargetY - $SourceY) * $step / $steps)
-    [BugProbeInput]::SetCursorPos($x, $y) | Out-Null
-    Start-Sleep -Milliseconds 25
-}
+    $steps = 24
+    for ($step = 1; $step -le $steps; $step++) {
+        $x = [Math]::Round(
+            $SourceX + ($TargetX - $SourceX) * $step / $steps
+        )
+        $y = [Math]::Round(
+            $SourceY + ($TargetY - $SourceY) * $step / $steps
+        )
+        if (-not [BugProbeInput]::SetCursorPos($x, $y)) {
+            throw "SetCursorPos failed during drag step $step."
+        }
+        Start-Sleep -Milliseconds 25
+    }
 
-"phase=holding x=$TargetX y=$TargetY" |
-    Set-Content -LiteralPath $phasePath -Encoding ascii
-Start-Sleep -Seconds $HoldSeconds
-[BugProbeInput]::mouse_event($leftUp, 0, 0, 0, [UIntPtr]::Zero)
-"phase=released x=$TargetX y=$TargetY" |
-    Set-Content -LiteralPath $phasePath -Encoding ascii
+    "phase=holding x=$TargetX y=$TargetY" |
+        Set-Content -LiteralPath $phasePath -Encoding ascii
+    Start-Sleep -Seconds $HoldSeconds
+    [BugProbeInput]::mouse_event($leftUp, 0, 0, 0, [UIntPtr]::Zero)
+    $buttonIsDown = $false
+    "phase=released x=$TargetX y=$TargetY" |
+        Set-Content -LiteralPath $phasePath -Encoding ascii
+}
+catch {
+    "phase=failed error=$($_.Exception.Message)" |
+        Set-Content -LiteralPath $phasePath -Encoding ascii
+    throw
+}
+finally {
+    if ($buttonIsDown) {
+        [BugProbeInput]::mouse_event(
+            $leftUp,
+            0,
+            0,
+            0,
+            [UIntPtr]::Zero
+        )
+    }
+}

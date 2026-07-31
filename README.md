@@ -29,8 +29,8 @@
 
 ## 快速使用
 
-从 [Releases](https://github.com/tiansongyu/awesome_bug/releases) 或 CI artifact
-下载 Windows x64 ZIP，完整解压后运行：
+从 [Windows x64 package CI](https://github.com/tiansongyu/awesome_bug/actions/workflows/windows-package.yml)
+下载构建产物中的 Windows x64 ZIP，完整解压后运行：
 
 ```text
 cockroach_overlay.exe       单只桌面宠物

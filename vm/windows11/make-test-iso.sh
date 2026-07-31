@@ -7,7 +7,7 @@ package_archive="${project_dir}/dist/cockroach-overlay-windows-x64.zip"
 package_checksum="${package_archive}.sha256"
 output="${1:-${project_dir}/dist/rust-bug-windows11-test.iso}"
 
-for program in genisoimage install mktemp sha256sum unzip; do
+for program in genisoimage install mktemp realpath sha256sum unzip; do
     if ! command -v "${program}" >/dev/null 2>&1; then
         echo "Missing required command: ${program}" >&2
         exit 1
@@ -25,8 +25,30 @@ done
     sha256sum --check -- "$(basename -- "${package_checksum}")"
 )
 
+output_dir="$(dirname -- "${output}")"
+mkdir -p -- "${output_dir}"
+output="$(realpath -m -- "${output}")"
+package_archive="$(realpath -m -- "${package_archive}")"
+package_checksum="$(realpath -m -- "${package_checksum}")"
+
+if [[ "${output}" == "${package_archive}" || "${output}" == "${package_checksum}" ]]; then
+    echo "Refusing to overwrite a Windows package input: ${output}" >&2
+    exit 1
+fi
+if [[ -d "${output}" ]]; then
+    echo "ISO output path is a directory: ${output}" >&2
+    exit 1
+fi
+
 stage="$(mktemp -d "${TMPDIR:-/tmp}/rust-bug-vm-iso.XXXXXXXX")"
-trap 'rm -rf -- "${stage}"' EXIT
+output_tmp=""
+cleanup() {
+    rm -rf -- "${stage}"
+    if [[ -n "${output_tmp}" ]]; then
+        rm -f -- "${output_tmp}"
+    fi
+}
+trap cleanup EXIT
 
 unzip -q "${package_archive}" -d "${stage}/package"
 payload_dir="${stage}/package/windows-x64"
@@ -47,6 +69,9 @@ install -m 0644 "${script_dir}/run-bait-trace.cmd" "${stage}/"
 install -m 0644 "${script_dir}/run-single-live.cmd" "${stage}/"
 install -m 0644 "${script_dir}/run-swarm-live.cmd" "${stage}/"
 
-mkdir -p -- "$(dirname -- "${output}")"
-genisoimage -quiet -J -R -V RUSTBUG -o "${output}" "${stage}"
+output_tmp="$(mktemp --tmpdir="${output_dir}" \
+    ".$(basename -- "${output}").new.XXXXXXXX")"
+genisoimage -quiet -J -R -V RUSTBUG -o "${output_tmp}" "${stage}"
+mv -f -- "${output_tmp}" "${output}"
+output_tmp=""
 echo "Windows 11 test ISO: ${output}"

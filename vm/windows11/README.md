@@ -24,6 +24,10 @@ WINDOWS_ISO=/path/to/Win11_x64.iso ./vm/windows11/create-vm.sh
 创建脚本只从 `dist/cockroach-overlay-windows-x64.zip` 取测试程序，不读取旧的
 展开构建目录。安装使用 `Autounattend.xml` 自动完成。测试账户：
 
+如果 libvirt 域已删除但 `windows11.qcow2` 仍存在，脚本默认中止，避免无人值守
+安装擦除旧系统盘。只有明确要重装时才使用 `ALLOW_REINSTALL=1`；脚本会在安装
+前打印将被复用的完整磁盘路径。
+
 ```text
 用户名：tester
 密码：RoachTest!25H2

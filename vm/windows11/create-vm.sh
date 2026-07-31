@@ -10,6 +10,12 @@ test_tools_iso="${vm_state_dir}/cockroach-test-tools.iso"
 package_archive="${project_dir}/dist/cockroach-overlay-windows-x64.zip"
 package_checksum="${package_archive}.sha256"
 connection="${LIBVIRT_URI:-qemu:///session}"
+allow_reinstall="${ALLOW_REINSTALL:-0}"
+
+if [[ "${allow_reinstall}" != "0" && "${allow_reinstall}" != "1" ]]; then
+    echo "ALLOW_REINSTALL must be 0 or 1." >&2
+    exit 1
+fi
 
 for program in virsh virt-install qemu-img genisoimage sha256sum swtpm unzip; do
     if ! command -v "${program}" >/dev/null 2>&1; then
@@ -62,7 +68,20 @@ if virsh -c "${connection}" dominfo "${vm_name}" >/dev/null 2>&1; then
     exit 0
 fi
 
-if [[ ! -f "${disk_image}" ]]; then
+if [[ -e "${disk_image}" || -L "${disk_image}" ]]; then
+    if [[ ! -f "${disk_image}" || -L "${disk_image}" ]]; then
+        echo "Refusing to use a non-regular VM disk: ${disk_image}" >&2
+        exit 1
+    fi
+    if [[ "${allow_reinstall}" != "1" ]]; then
+        echo "Refusing to reuse the existing VM disk: ${disk_image}" >&2
+        echo "Windows Setup is configured to erase its installation disk." >&2
+        echo "To intentionally reinstall, rerun with ALLOW_REINSTALL=1." >&2
+        exit 1
+    fi
+    echo "WARNING: reinstalling Windows may erase the existing disk:"
+    echo "  ${disk_image}"
+else
     qemu-img create -f qcow2 -o lazy_refcounts=on \
         "${disk_image}" 100G
 fi
