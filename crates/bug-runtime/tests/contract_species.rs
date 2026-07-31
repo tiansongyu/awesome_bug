@@ -247,6 +247,19 @@ fn manifest_rejects_unknown_fields_and_bad_numbers() {
     let error = evaluate_and_parse(&fractional_tree.root, &fractional_script)
         .expect_err("fractional dimensions must fail");
     assert!(error.message.contains("integer"));
+
+    let collider_script =
+        valid_manifest("").replace("collider_half_width = 0.25", "collider_half_width = 1.01");
+    let collider_tree = fixture(&collider_script);
+    let error = evaluate_and_parse(&collider_tree.root, &collider_script)
+        .expect_err("a collider unsupported by the motion solver must fail");
+    assert!(error.message.contains("body.collider_half_width"));
+
+    let translucent_script = valid_manifest("render = { color = { 255, 255, 255, 254 } },");
+    let translucent_tree = fixture(&translucent_script);
+    let error = evaluate_and_parse(&translucent_tree.root, &translucent_script)
+        .expect_err("whole-sprite translucency must fail at manifest load");
+    assert!(error.message.contains("render.color alpha must be 255"));
 }
 
 #[test]

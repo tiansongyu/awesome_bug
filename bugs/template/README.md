@@ -10,8 +10,9 @@ Copy this directory, rename it, and edit the three self-contained files:
 
 The runtime loads `manifest.lua` as data. Paths must be relative files inside
 the species directory, part names must be unique, and atlas rectangles must be
-in bounds. A new species never requires native subclassing or a main-loop
-change.
+in bounds. Collider half-extents are body-length fractions in `(0, 1]`;
+`render.color` may tint RGB but its alpha must remain `255`. A new species
+never requires native subclassing or a main-loop change.
 
 Behavior ABI v1 receives only validated data and a read-only `host` table:
 

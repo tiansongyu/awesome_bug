@@ -23,7 +23,7 @@ const MAX_TABLE_ENTRIES: usize = 8_192;
 const MAX_ATLAS_DIMENSION: i32 = 16_384;
 const MAX_REFERENCE_LENGTH: f64 = 100_000.0;
 const MAX_OVERLAY_SCALE: f64 = 32.0;
-const MAX_COLLIDER_HALF_EXTENT: f64 = 2.0;
+const MAX_COLLIDER_HALF_EXTENT: f64 = 1.0;
 const MAX_ATTACHMENT_COORDINATE: f64 = 32.0;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -490,6 +490,9 @@ fn parse_visual(reader: &ManifestReader<'_>, manifest: &Table) -> SpeciesResult<
     let mut visual = VisualDefinition::default();
     if let Some(value) = reader.optional_value(&render, "color", "render.color")? {
         let color = reader.color(value, "render.color")?;
+        if color[3] != 255 {
+            return Err(reader.error("render.color alpha must be 255"));
+        }
         [visual.red, visual.green, visual.blue, visual.alpha] = color;
     }
     if let Some(shadow) = reader.optional_table(&render, "shadow", "render.shadow")? {
