@@ -2,28 +2,35 @@
 set -euo pipefail
 
 project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
-vm_name="cockroach-win11"
-vm_state_dir="/home/ubuntu/VirtualMachines/cockroach-win11"
-windows_iso="/media/ubuntu/Ventoy/Win11_25H2_Chinese_Simplified_x64.iso"
+vm_name="${VM_NAME:-cockroach-win11}"
+vm_state_dir="${VM_STATE_DIR:-${HOME}/VirtualMachines/${vm_name}}"
+windows_iso="${WINDOWS_ISO:-}"
 disk_image="${vm_state_dir}/windows11.qcow2"
 test_tools_iso="${vm_state_dir}/cockroach-test-tools.iso"
-connection="qemu:///session"
+package_archive="${project_dir}/dist/cockroach-overlay-windows-x64.zip"
+package_checksum="${package_archive}.sha256"
+connection="${LIBVIRT_URI:-qemu:///session}"
 
-for program in virsh virt-install qemu-img genisoimage swtpm; do
+for program in virsh virt-install qemu-img genisoimage sha256sum swtpm unzip; do
     if ! command -v "${program}" >/dev/null 2>&1; then
         echo "Missing required program: ${program}" >&2
         exit 1
     fi
 done
 
-if [[ ! -r "${windows_iso}" ]]; then
+if [[ -z "${windows_iso}" || ! -r "${windows_iso}" ]]; then
+    echo "Set WINDOWS_ISO to a readable Windows 11 x64 ISO." >&2
     echo "Windows ISO is not readable: ${windows_iso}" >&2
     exit 1
 fi
-if [[ ! -f "${project_dir}/dist/windows-x64/cockroach_overlay.exe" ]]; then
+if [[ ! -f "${package_archive}" || ! -f "${package_checksum}" ]]; then
     echo "Build the Windows package first: ./scripts/build-windows.sh" >&2
     exit 1
 fi
+(
+    cd -- "${project_dir}/dist"
+    sha256sum --check -- "$(basename -- "${package_checksum}")"
+)
 
 mkdir -p "${vm_state_dir}"
 
@@ -35,7 +42,16 @@ trap cleanup EXIT
 
 install -m 0644 "${project_dir}/vm/windows11/autounattend.xml" \
     "${stage_dir}/Autounattend.xml"
-cp -a "${project_dir}/dist/windows-x64/." "${stage_dir}/"
+unzip -q "${package_archive}" -d "${stage_dir}/package"
+payload_dir="${stage_dir}/package/windows-x64"
+for required in cockroach_overlay.exe cockroach_swarm_20.exe SDL2.dll bugs; do
+    if [[ ! -e "${payload_dir}/${required}" ]]; then
+        echo "Windows package is incomplete: ${required}" >&2
+        exit 1
+    fi
+done
+cp -a "${payload_dir}/." "${stage_dir}/"
+rm -rf -- "${stage_dir}/package"
 genisoimage -quiet -J -R -V COCKROACH_TEST \
     -o "${test_tools_iso}.new" "${stage_dir}"
 mv -f -- "${test_tools_iso}.new" "${test_tools_iso}"

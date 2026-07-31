@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-exec virt-viewer --connect qemu:///session --attach cockroach-win11
+vm_name="${VM_NAME:-cockroach-win11}"
+connection="${LIBVIRT_URI:-qemu:///session}"
+
+exec virt-viewer --connect "${connection}" --attach "${vm_name}"
