@@ -30,6 +30,7 @@ impl Sandbox {
 
         for library_name in LIBRARIES {
             let original: Table = globals.raw_get(*library_name)?;
+            remove_unsafe_library_entries(&original, library_name)?;
             let filtered = copy_library(lua, &original, library_name)?;
             safe_values.raw_set(*library_name, readonly_proxy(lua, filtered, library_name)?)?;
         }
@@ -43,6 +44,14 @@ impl Sandbox {
         let environment = lua.create_table()?;
         let metatable = lua.create_table()?;
         metatable.raw_set("__index", self.safe_globals.clone())?;
+        let reject_global: Function =
+            lua.create_function(|_, (_table, key, _value): (Table, Value, Value)| {
+                Err::<(), _>(mlua::Error::runtime(format!(
+                    "sandbox modules must use local bindings (attempted global {})",
+                    display_key(&key)
+                )))
+            })?;
+        metatable.raw_set("__newindex", reject_global)?;
         metatable.raw_set("__metatable", "protected sandbox environment")?;
         environment.set_metatable(Some(metatable))?;
         Ok(environment)
@@ -91,6 +100,20 @@ pub(crate) fn require_function(table: &Table, field: &str) -> mlua::Result<Funct
             "{field} must be a function, got {}",
             other.type_name()
         ))),
+    }
+}
+
+fn remove_unsafe_library_entries(library: &Table, name: &str) -> mlua::Result<()> {
+    match name {
+        // Lua strings retain a VM-global metatable whose __index points at the
+        // original string library.  Filtering only the environment proxy
+        // would still expose `string.dump` through `("").dump`.
+        "string" => library.raw_set("dump", Value::Nil),
+        "math" => {
+            library.raw_set("random", Value::Nil)?;
+            library.raw_set("randomseed", Value::Nil)
+        }
+        _ => Ok(()),
     }
 }
 

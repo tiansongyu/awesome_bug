@@ -165,6 +165,23 @@ local function new_controller(config, host)
         return host.random(tag, low, high)
     end
 
+    -- The final Rust host uses stock Lua 5.4 numbers (double) while the
+    -- migration oracle used Lua's float ABI.  Quantize persistent controller
+    -- state at the same boundaries so state-transition frames remain stable.
+    -- The guarded fallback keeps the temporary C++ oracle byte-for-byte
+    -- unchanged until the migration gate is retired.
+    local function f32(value)
+        if type(host.f32) == "function" then
+            return host.f32(value)
+        end
+        return value
+    end
+
+    local function f32_vec(value)
+        local x, y = xy(value)
+        return vec(f32(x), f32(y))
+    end
+
     local function clamp(value, low, high)
         if host.clamp then
             return host.clamp(value, low, high)
@@ -184,17 +201,30 @@ local function new_controller(config, host)
     local function choose_wander_target(frame)
         local world = world_rect(frame)
         local body = body_length(frame, config)
-        local half_length = body * 0.43
-        local half_width = body * 0.20
-        local safe_extent = math.sqrt(
-            half_length * half_length + half_width * half_width)
-        local margin_x = math.min(safe_extent + 18.0, world.width * 0.45)
-        local margin_y = math.min(safe_extent + 18.0, world.height * 0.45)
-        self.target = vec(
+        -- These values become tagged-RNG range bounds. Reproduce the old
+        -- float-ABI operation boundaries explicitly so the recorded C++ tape
+        -- remains bit-exact under stock Lua 5.4's double ABI.
+        local half_length = f32(body * f32(0.43))
+        local half_width = f32(body * f32(0.20))
+        local safe_extent = f32(math.sqrt(f32(
+            f32(half_length * half_length)
+                + f32(half_width * half_width))))
+        local margin = f32(safe_extent + f32(18.0))
+        local margin_x = math.min(
+            margin, f32(world.width * f32(0.45)))
+        local margin_y = math.min(
+            margin, f32(world.height * f32(0.45)))
+        local low_x = f32(world.x + margin_x)
+        local high_x = f32(
+            f32(world.x + world.width) - margin_x)
+        local low_y = f32(world.y + margin_y)
+        local high_y = f32(
+            f32(world.y + world.height) - margin_y)
+        self.target = f32_vec(vec(
             random("wander.target.x",
-                world.x + margin_x, world.x + world.width - margin_x),
+                low_x, high_x),
             random("wander.target.y",
-                world.y + margin_y, world.y + world.height - margin_y))
+                low_y, high_y)))
     end
 
     local function computed_corners(frame)
@@ -249,7 +279,7 @@ local function new_controller(config, host)
                 best = candidate
             end
         end
-        self.target = best
+        self.target = f32_vec(best)
     end
 
     if type(host.fsm) ~= "table"
@@ -276,7 +306,7 @@ local function new_controller(config, host)
     end
 
     local function begin_entry(change)
-        self.state_clock = 0.0
+        self.state_clock = f32(0.0)
         local payload = change.payload or {}
         if type(payload.frame) ~= "table" then
             error("cockroach FSM transition requires a frame")
@@ -287,27 +317,27 @@ local function new_controller(config, host)
     local function enter_wander(_, change)
         local frame = begin_entry(change)
         local multiplier = config.speed_multiplier or 1.0
-        self.state_timer = random("wander.duration", 0.95, 4.20)
+        self.state_timer = f32(random("wander.duration", 0.95, 4.20))
         self.desired_speed =
-            random("wander.speed", 112.0, 225.0) * multiplier
+            f32(random("wander.speed", 112.0, 225.0) * multiplier)
         choose_wander_target(frame)
     end
 
     local function enter_creep(_, change)
         local frame = begin_entry(change)
         local multiplier = config.speed_multiplier or 1.0
-        self.state_timer = random("creep.duration", 0.85, 2.10)
+        self.state_timer = f32(random("creep.duration", 0.85, 2.10))
         self.desired_speed =
-            random("creep.speed", 30.0, 62.0) * multiplier
+            f32(random("creep.speed", 30.0, 62.0) * multiplier)
         choose_wander_target(frame)
     end
 
     local function enter_pause(_, change)
         begin_entry(change)
-        self.state_timer = random("pause.duration", 0.045, 0.24)
+        self.state_timer = f32(random("pause.duration", 0.045, 0.24))
         if random("pause.long_roll", 0.0, 1.0) < 0.07 then
-            self.state_timer = self.state_timer
-                + random("pause.long_duration", 0.25, 0.55)
+            self.state_timer = f32(self.state_timer
+                + random("pause.long_duration", 0.25, 0.55))
         end
         self.desired_speed = 0.0
     end
@@ -317,28 +347,30 @@ local function new_controller(config, host)
         local multiplier = config.speed_multiplier or 1.0
         local position = body_position(frame)
         self.desired_speed =
-            random("corner.speed", 48.0, 82.0) * multiplier
-        self.state_timer = clamp(
+            f32(random("corner.speed", 48.0, 82.0) * multiplier)
+        self.state_timer = f32(clamp(
             length(sub(self.target, position))
                 / math.max(40.0, self.desired_speed * 0.62)
                 * 1.75 + 2.0,
-            12.0, 32.0)
+            12.0, 32.0))
         self.groomed_during_rest = false
     end
 
     local function enter_lurk(_, change)
         begin_entry(change)
         if self.groomed_during_rest then
-            self.state_timer = random("lurk.after_groom", 2.0, 3.8)
+            self.state_timer =
+                f32(random("lurk.after_groom", 2.0, 3.8))
         else
-            self.state_timer = random("lurk.before_groom", 4.5, 7.5)
+            self.state_timer =
+                f32(random("lurk.before_groom", 4.5, 7.5))
         end
         self.desired_speed = 0.0
     end
 
     local function enter_groom(_, change)
         begin_entry(change)
-        self.state_timer = random("groom.duration", 3.2, 5.2)
+        self.state_timer = f32(random("groom.duration", 3.2, 5.2))
         self.desired_speed = 0.0
         self.groomed_during_rest = true
     end
@@ -346,41 +378,45 @@ local function new_controller(config, host)
     local function enter_seek_food(_, change)
         begin_entry(change)
         local multiplier = config.speed_multiplier or 1.0
-        self.state_timer = random("food.seek_duration", 10.0, 15.0)
+        self.state_timer =
+            f32(random("food.seek_duration", 10.0, 15.0))
         self.desired_speed =
-            random("food.seek_speed", 42.0, 70.0) * multiplier
+            f32(random("food.seek_speed", 42.0, 70.0) * multiplier)
     end
 
     local function enter_feeding(_, change)
         begin_entry(change)
-        self.state_timer = random("food.feed_duration", 2.4, 3.4)
+        self.state_timer =
+            f32(random("food.feed_duration", 2.4, 3.4))
         self.desired_speed = 0.0
     end
 
     local function enter_startled(_, change)
         local _, direction = begin_entry(change)
         self.state_timer =
-            random("threat.startle_duration", 0.055, 0.12)
+            f32(random("threat.startle_duration", 0.055, 0.12))
         self.desired_speed = 0.0
-        self.pending_flee_direction = normalized(direction or vec())
+        self.pending_flee_direction =
+            f32_vec(normalized(direction or vec()))
     end
 
     local function enter_flee(_, change)
         local frame, direction = begin_entry(change)
         local multiplier = config.speed_multiplier or 1.0
         local position = body_position(frame)
-        self.state_timer = random("threat.flee_duration", 0.72, 1.35)
+        self.state_timer =
+            f32(random("threat.flee_duration", 0.72, 1.35))
         self.desired_speed =
-            random("threat.flee_speed", 320.0, 450.0) * multiplier
+            f32(random("threat.flee_speed", 320.0, 450.0) * multiplier)
         local flee_direction = normalized(direction or vec())
         if length(flee_direction) < 0.001 then
             local heading = (frame.body or {}).heading or 0.0
             flee_direction = forward(heading)
         end
-        self.target = add(
+        self.target = f32_vec(add(
             position,
             mul(flee_direction,
-                random("threat.flee_distance", 380.0, 650.0)))
+                random("threat.flee_distance", 380.0, 650.0))))
     end
 
     local function create_fsm(frame)
@@ -451,11 +487,15 @@ local function new_controller(config, host)
     end
 
     local function initialize(frame)
-        self.initial_heading = random("init.heading", -pi, pi)
-        self.behavior_clock = random("init.behavior_clock", 0.0, 20.0)
-        self.steering_phase = random("init.steering_phase", -pi, pi)
-        self.speed_pulse_phase = random("init.speed_pulse_phase", -pi, pi)
-        self.shelter_timer = random("init.shelter_timer", 16.0, 34.0)
+        self.initial_heading = f32(random("init.heading", -pi, pi))
+        self.behavior_clock =
+            f32(random("init.behavior_clock", 0.0, 20.0))
+        self.steering_phase =
+            f32(random("init.steering_phase", -pi, pi))
+        self.speed_pulse_phase =
+            f32(random("init.speed_pulse_phase", -pi, pi))
+        self.shelter_timer =
+            f32(random("init.shelter_timer", 16.0, 34.0))
         self.fsm = create_fsm(frame)
         self.initialized = true
     end
@@ -470,10 +510,12 @@ local function new_controller(config, host)
         local cursor_position = position_of(cursor)
         local cursor_velocity = velocity_of(cursor)
 
-        self.state_timer = self.state_timer - dt
-        self.state_clock = self.state_clock + dt
-        self.threat_cooldown = math.max(0.0, self.threat_cooldown - dt)
-        self.food_retry_timer = math.max(0.0, self.food_retry_timer - dt)
+        self.state_timer = f32(self.state_timer - dt)
+        self.state_clock = f32(self.state_clock + dt)
+        self.threat_cooldown =
+            f32(math.max(0.0, self.threat_cooldown - dt))
+        self.food_retry_timer =
+            f32(math.max(0.0, self.food_retry_timer - dt))
 
         if extended
             and not is("seek-corner")
@@ -481,7 +523,7 @@ local function new_controller(config, host)
             and not is("groom")
             and not is("seek-food")
             and not is("feeding") then
-            self.shelter_timer = self.shelter_timer - dt
+            self.shelter_timer = f32(self.shelter_timer - dt)
         end
 
         local cursor_delta = sub(position, cursor_position)
@@ -523,18 +565,18 @@ local function new_controller(config, host)
             or is("groom")
         if extended and bait_active and can_seek_food
             and self.food_retry_timer <= 0.0 then
-            self.target = bait_position
+            self.target = f32_vec(bait_position)
             transition("seek-food", frame)
         end
 
         if is("seek-food") then
             if not bait_active then
-                self.food_retry_timer = 1.5
+                self.food_retry_timer = f32(1.5)
                 transition("wander", frame)
             else
-                self.target = bait_position
+                self.target = f32_vec(bait_position)
                 if length(sub(self.target, position)) < body * 0.34 then
-                    self.feeding_bait_position = bait_position
+                    self.feeding_bait_position = f32_vec(bait_position)
                     transition("feeding", frame)
                 end
             end
@@ -544,7 +586,7 @@ local function new_controller(config, host)
             elseif length(sub(bait_position, self.feeding_bait_position)) > 2.0
                 or length(sub(position, self.feeding_bait_position))
                     > body * 0.52 then
-                self.target = bait_position
+                self.target = f32_vec(bait_position)
                 transition("seek-food", frame)
             end
         end
@@ -574,7 +616,7 @@ local function new_controller(config, host)
                 or is("creep") then
                 if is("flee") then
                     self.threat_cooldown =
-                        random("threat.cooldown", 0.85, 1.25)
+                        f32(random("threat.cooldown", 0.85, 1.25))
                 end
                 transition("wander", frame)
             elseif is("seek-corner") then
@@ -583,7 +625,7 @@ local function new_controller(config, host)
             elseif is("lurk") then
                 if self.groomed_during_rest then
                     self.shelter_timer =
-                        random("shelter.retry", 18.0, 38.0)
+                        f32(random("shelter.retry", 18.0, 38.0))
                     transition("wander", frame)
                 else
                     transition("groom", frame)
@@ -592,17 +634,18 @@ local function new_controller(config, host)
                 transition("lurk", frame)
             elseif is("seek-food") then
                 self.food_retry_timer =
-                    random("food.retry", 2.0, 4.0)
+                    f32(random("food.retry", 2.0, 4.0))
                 transition("wander", frame)
             elseif is("feeding") then
                 local sensors = frame.sensors or {}
                 if sensors.overlapping == true and bait_active then
-                    self.target = bait_position
+                    self.target = f32_vec(bait_position)
                     transition("seek-food", frame)
                 else
                     consume_bait = true
                     self.shelter_timer =
-                        random("food.shelter_delay", 12.0, 24.0)
+                        f32(random(
+                            "food.shelter_delay", 12.0, 24.0))
                     transition("wander", frame)
                 end
             else
@@ -629,8 +672,8 @@ local function new_controller(config, host)
         end
 
         local dt = finite_or(frame.dt, 0.0)
-        self.recovery_timer =
-            math.max(0.0, self.recovery_timer - math.max(0.0, dt))
+        self.recovery_timer = f32(
+            math.max(0.0, self.recovery_timer - math.max(0.0, dt)))
         if self.recovery_timer > 0.0 then
             return
         end
@@ -645,9 +688,9 @@ local function new_controller(config, host)
         if clearance > 0.0
             and (blocked_time >= 0.16 or edge_dwell_time >= 0.72)
             and length(direction) > 0.001 then
-            self.recovery_direction = direction
+            self.recovery_direction = f32_vec(direction)
             self.recovery_timer =
-                random("solver.recovery_duration", 0.48, 0.72)
+                f32(random("solver.recovery_duration", 0.48, 0.72))
         end
     end
 
@@ -660,7 +703,7 @@ local function new_controller(config, host)
                 or is("feeding")
                 or is("startled")
             if stopped_state then
-                self.recovery_timer = 0.0
+                self.recovery_timer = f32(0.0)
                 return false, vec()
             end
             return self.recovery_timer > 0.0,
@@ -798,11 +841,12 @@ local function new_controller(config, host)
                 or is("creep")
                 or is("pause")) then
             self.desired_speed =
-                random("recovery.roaming_speed", 178.0, 248.0)
-                * multiplier
-            self.target = add(
+                f32(random("recovery.roaming_speed", 178.0, 248.0)
+                    * multiplier)
+            self.target = f32_vec(add(
                 position,
-                mul(recovery_direction, math.max(260.0, body_size * 2.1)))
+                mul(recovery_direction,
+                    math.max(260.0, body_size * 2.1))))
         end
         self.recovery_was_active = recovery_active
 
@@ -917,8 +961,8 @@ local function new_controller(config, host)
             * math.min(2.8, predicted_speed * 0.0085)
         local cycles_per_second = clamp(
             0.35 + predicted_speed / (body_size * 0.62), 0.35, 5.2)
-        self.gait_clock = self.gait_clock
-            + dt * cycles_per_second * 2.0 * pi
+        self.gait_clock = f32(self.gait_clock
+            + dt * cycles_per_second * 2.0 * pi)
 
         return {
             direction = forward(desired_heading),
@@ -941,7 +985,7 @@ local function new_controller(config, host)
 
         local initial_heading = self.initial_heading
         self.initial_heading = nil
-        self.behavior_clock = self.behavior_clock + frame.dt
+        self.behavior_clock = f32(self.behavior_clock + frame.dt)
         update_host_recovery(frame)
         local consume_bait = update_behavior(frame)
         local motion = steer(frame)

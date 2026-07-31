@@ -121,10 +121,10 @@ if type(table) ~= "table" or type(string) ~= "table"
     or type(math) ~= "table" or type(utf8) ~= "table" then
     error("required safe library is missing")
 end
-if math.random ~= nil or math.randomseed ~= nil or string.dump ~= nil then
+if math.random ~= nil or math.randomseed ~= nil or string.dump ~= nil
+    or ("").dump ~= nil then
     error("dynamic code or untagged randomness is visible")
 end
-sandbox_private_global = 42
 return {{
     api_version = 1,
     new = function(config, host)
@@ -151,11 +151,9 @@ return {{
         "moving"
     );
 
-    let second_source = format!(
+    let global_write_source = format!(
         r#"{VALID_HELPERS}
-if sandbox_private_global ~= nil then
-    error("one chunk polluted another chunk environment")
-end
+shared_controller_state = 42
 return {{
     api_version = 1,
     new = function()
@@ -167,8 +165,11 @@ return {{
 }}
 "#
     );
-    host.load_behavior_descriptor(descriptor("sandbox_b", &second_source))
-        .expect("chunk environments must be isolated");
+    let error = host
+        .load_behavior_descriptor(descriptor("sandbox_b", &global_write_source))
+        .expect_err("module-level mutable globals must be rejected");
+    assert_eq!(error.kind, ScriptErrorKind::Runtime);
+    assert!(error.message.contains("local bindings"));
 }
 
 #[test]
