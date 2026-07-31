@@ -2,8 +2,6 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const WINDOWS_BINARIES: [&str; 2] = ["cockroach_overlay", "cockroach_swarm_20"];
-
 fn main() {
     println!("cargo:rerun-if-changed=resources/app.rc");
     println!("cargo:rerun-if-changed=../../packaging/cockroach.ico");
@@ -17,7 +15,6 @@ fn main() {
     }
 
     configure_sdl_link_search(&target);
-    configure_gui_subsystem(&target);
     compile_windows_resources();
 }
 
@@ -41,17 +38,6 @@ fn configure_sdl_link_search(target: &str) {
     }
 
     println!("cargo:rustc-link-search=native={}", directory.display());
-}
-
-fn configure_gui_subsystem(target: &str) {
-    let linker_argument = if target.ends_with("-msvc") {
-        "/SUBSYSTEM:WINDOWS"
-    } else {
-        "-Wl,--subsystem,windows"
-    };
-    for binary in WINDOWS_BINARIES {
-        println!("cargo:rustc-link-arg-bin={binary}={linker_argument}");
-    }
 }
 
 fn compile_windows_resources() {

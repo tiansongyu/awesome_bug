@@ -1,3 +1,5 @@
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 #[cfg(not(windows))]
 compile_error!("cockroach_overlay is a Windows-only desktop application");
 
