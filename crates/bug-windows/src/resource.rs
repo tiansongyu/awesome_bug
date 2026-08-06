@@ -1,4 +1,4 @@
-//! Resource discovery anchored exclusively to the executable directory.
+//! Resource discovery anchored to the executable or macOS app bundle.
 
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
@@ -40,7 +40,9 @@ pub fn discover(executable: &Path, options: &Options) -> Result<ResourcePaths, R
         .parent()
         .ok_or_else(|| ResourceError("the executable has no parent directory".to_owned()))?
         .to_path_buf();
-    let bugs_root = executable_directory.join("bugs");
+    let resource_directory = bundled_resource_directory(&executable_directory)
+        .unwrap_or_else(|| executable_directory.clone());
+    let bugs_root = resource_directory.join("bugs");
     let fsm_path = resolve_species_file(&bugs_root, "runtime/fsm.lua", "runtime FSM")
         .map_err(|error| ResourceError(error.to_string()))?;
     let requested_species = options
@@ -62,6 +64,28 @@ pub fn discover(executable: &Path, options: &Options) -> Result<ResourcePaths, R
         species_root,
         asset_override,
     })
+}
+
+#[must_use]
+fn bundled_resource_directory(executable_directory: &Path) -> Option<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        if executable_directory
+            .file_name()
+            .is_some_and(|name| name == "MacOS")
+        {
+            let contents = executable_directory.parent()?;
+            if contents.file_name().is_some_and(|name| name == "Contents") {
+                let resources = contents.join("Resources");
+                if resources.is_dir() {
+                    return Some(resources);
+                }
+            }
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = executable_directory;
+    None
 }
 
 fn canonical_regular_file(path: &Path) -> Result<PathBuf, ResourceError> {

@@ -1,11 +1,11 @@
-//! Windows SDL and Win32 host for the scriptable bug runtime.
+//! Windows and macOS desktop hosts for the scriptable bug runtime.
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 pub mod app;
 pub mod cli;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 pub mod platform;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 pub mod render;
 pub mod resource;
 pub mod spawn;

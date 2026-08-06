@@ -1,4 +1,4 @@
-//! Windows application host shared by the single-pet and swarm executables.
+//! Desktop application host shared by the single-pet and swarm executables.
 //!
 //! This is deliberately an orchestration layer: species policy stays in Lua,
 //! collision geometry stays in `bug-runtime`, and Win32 details stay in
@@ -19,7 +19,9 @@ use bug_runtime::lua::LuaHost;
 use bug_runtime::math::Vec2;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
+#[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW};
+#[cfg(windows)]
 use windows::core::PCWSTR;
 
 use crate::cli::{DefaultMode, Options, parse, usage};
@@ -107,12 +109,25 @@ struct SessionLog {
 
 impl SessionLog {
     fn open() -> Self {
-        let Some(local_app_data) = env::var_os("LOCALAPPDATA") else {
-            return Self::default();
+        #[cfg(windows)]
+        let directory = {
+            let Some(local_app_data) = env::var_os("LOCALAPPDATA") else {
+                return Self::default();
+            };
+            PathBuf::from(local_app_data)
+                .join("ScriptableBugOverlay")
+                .join("logs")
         };
-        let directory = PathBuf::from(local_app_data)
-            .join("ScriptableBugOverlay")
-            .join("logs");
+        #[cfg(target_os = "macos")]
+        let directory = {
+            let Some(home) = env::var_os("HOME") else {
+                return Self::default();
+            };
+            PathBuf::from(home)
+                .join("Library")
+                .join("Logs")
+                .join("ScriptableBugOverlay")
+        };
         if fs::create_dir_all(&directory).is_err() {
             return Self::default();
         }
@@ -130,7 +145,7 @@ impl SessionLog {
     }
 }
 
-/// Runs one configured Windows overlay application.
+/// Runs one configured desktop overlay application.
 ///
 /// Startup validation completes before the first overlay is shown.  A display
 /// topology change rebuilds only the native windows and renderer resources;
@@ -143,7 +158,7 @@ pub fn run(mode: DefaultMode) -> Result<(), AppError> {
     let executable_name = executable
         .file_name()
         .and_then(OsStr::to_str)
-        .unwrap_or("cockroach_overlay.exe");
+        .unwrap_or("cockroach_overlay");
     if options.show_help {
         println!("{}", usage(executable_name, mode));
         return Ok(());
@@ -576,19 +591,34 @@ fn read_display_geometry(
         .display_bounds(display_index)
         .map_err(|error| AppError::operation("read display bounds", error))?;
     let width = i32::try_from(bounds.width())
-        .map_err(|_| AppError::new("display width exceeds Windows coordinates"))?;
+        .map_err(|_| AppError::new("display width exceeds platform coordinates"))?;
     let height = i32::try_from(bounds.height())
-        .map_err(|_| AppError::new("display height exceeds Windows coordinates"))?;
+        .map_err(|_| AppError::new("display height exceeds platform coordinates"))?;
     let size_policy = options.body_size.map_or(
         BodySizePolicy::Automatic {
             reference_length: reference_body_length,
         },
         BodySizePolicy::Fixed,
     );
-    Ok(query_display_geometry(
-        PixelRect::new(bounds.x(), bounds.y(), width, height),
-        size_policy,
-    ))
+    let display_bounds = PixelRect::new(bounds.x(), bounds.y(), width, height);
+    #[cfg(windows)]
+    let geometry = query_display_geometry(display_bounds, size_policy);
+    #[cfg(target_os = "macos")]
+    let geometry = {
+        let usable = video
+            .display_usable_bounds(display_index)
+            .map_err(|error| AppError::operation("read display usable bounds", error))?;
+        let usable_width = i32::try_from(usable.width())
+            .map_err(|_| AppError::new("usable display width exceeds platform coordinates"))?;
+        let usable_height = i32::try_from(usable.height())
+            .map_err(|_| AppError::new("usable display height exceeds platform coordinates"))?;
+        query_display_geometry(
+            display_bounds,
+            PixelRect::new(usable.x(), usable.y(), usable_width, usable_height),
+            size_policy,
+        )
+    };
+    Ok(geometry)
 }
 
 fn frame_delta(now: u64, previous: u64, frequency: f64, fixed_step: bool) -> f32 {
@@ -615,7 +645,7 @@ fn duration_to_counter_ticks(duration: Duration, frequency: f64) -> u64 {
 fn rounded_screen_coordinate(value: f32) -> Result<i32, AppError> {
     if !value.is_finite() || value < i32::MIN as f32 || value > i32::MAX as f32 {
         return Err(AppError::new(
-            "overlay position exceeds Windows coordinates",
+            "overlay position exceeds platform coordinates",
         ));
     }
     Ok(value.round() as i32)
@@ -632,9 +662,21 @@ fn limit_vector(value: Vec2, maximum_length: f32) -> Vec2 {
 
 /// Displays a startup/runtime error without relying on a console subsystem.
 pub fn report_error(error: &AppError) {
+    #[cfg(windows)]
     show_message(&format!("{error}"), MB_OK | MB_ICONERROR);
+    #[cfg(target_os = "macos")]
+    {
+        eprintln!("{APPLICATION_TITLE}: {error}");
+        let _ = sdl2::messagebox::show_simple_message_box(
+            sdl2::messagebox::MessageBoxFlag::ERROR,
+            APPLICATION_TITLE,
+            &error.to_string(),
+            None,
+        );
+    }
 }
 
+#[cfg(windows)]
 fn show_message(message: &str, style: windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_STYLE) {
     let title = wide_string(APPLICATION_TITLE);
     let message = wide_string(message);
@@ -650,6 +692,7 @@ fn show_message(message: &str, style: windows::Win32::UI::WindowsAndMessaging::M
     }
 }
 
+#[cfg(windows)]
 fn wide_string(value: &str) -> Vec<u16> {
     value
         .encode_utf16()
