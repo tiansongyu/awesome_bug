@@ -127,6 +127,12 @@ local function new_controller(config, host)
         recovery_timer = 0.0,
         recovery_direction = vec(),
         recovery_was_active = false,
+        stuck_escape_active = false,
+        stuck_escape_direction = vec(),
+        stuck_escape_distance = 0.0,
+        stuck_escape_speed = 0.0,
+        stuck_escape_clear_timer = 0.0,
+        stuck_escape_repath_timer = 0.0,
     }
 
     local function random(tag, low, high)
@@ -625,11 +631,11 @@ local function new_controller(config, host)
         local feedback = frame.feedback
 
         local dt = finite_or(frame.dt, 0.0)
+        local step_dt = math.max(0.0, dt)
         self.recovery_timer = f32(
-            math.max(0.0, self.recovery_timer - math.max(0.0, dt)))
-        if self.recovery_timer > 0.0 then
-            return
-        end
+            math.max(0.0, self.recovery_timer - step_dt))
+        self.stuck_escape_repath_timer = f32(math.max(
+            0.0, self.stuck_escape_repath_timer - step_dt))
 
         local clearance =
             finite_or(feedback.recovery_clearance, 0.0)
@@ -638,6 +644,87 @@ local function new_controller(config, host)
             finite_or(feedback.edge_dwell_time, 0.0)
         local direction =
             normalized(feedback.recovery_direction or vec())
+        local actual_distance =
+            length(feedback.actual_displacement or vec())
+        local stopped_state =
+            is("pause")
+            or is("lurk")
+            or is("groom")
+            or is("feeding")
+            or is("startled")
+
+        if self.stuck_escape_active then
+            if stopped_state then
+                self.stuck_escape_active = false
+                self.stuck_escape_clear_timer = f32(0.0)
+                self.stuck_escape_repath_timer = f32(0.0)
+            else
+                -- Do not release the detour on a single lucky frame. The
+                -- solver's blocked timer decays only after real displacement,
+                -- then Lua requires a short run of continued progress.
+                if blocked_time <= 0.12 and actual_distance >= 0.35 then
+                    self.stuck_escape_clear_timer = f32(
+                        self.stuck_escape_clear_timer + step_dt)
+                else
+                    self.stuck_escape_clear_timer = f32(0.0)
+                end
+
+                if self.stuck_escape_clear_timer >= 0.28 then
+                    self.stuck_escape_active = false
+                    self.stuck_escape_clear_timer = f32(0.0)
+                    self.stuck_escape_repath_timer = f32(0.0)
+                    self.recovery_timer = f32(0.0)
+                    self.recovery_was_active = false
+                    if self.fsm:can("to_wander") then
+                        -- Discard the target that originally kept the body
+                        -- pushing into an icon.
+                        transition("wander", frame)
+                    end
+                elseif self.stuck_escape_repath_timer <= 0.0
+                    and clearance > 0.0
+                    and length(direction) > 0.001 then
+                    -- Refresh the committed route as the body turns around
+                    -- nearby icons. A bounded refresh prevents per-frame
+                    -- left/right oscillation.
+                    self.stuck_escape_direction = f32_vec(direction)
+                    self.stuck_escape_distance = f32(clamp(
+                        clearance * 0.86,
+                        body_length(frame) * 1.35,
+                        body_length(frame) * 2.25))
+                    self.stuck_escape_repath_timer = f32(0.42)
+                end
+            end
+        end
+
+        -- Short recoveries handle ordinary contacts. If poor real movement
+        -- survives for three seconds, promote it to a committed detour that
+        -- supersedes the old behavior target until progress is restored.
+        if not self.stuck_escape_active
+            and not stopped_state
+            and blocked_time >= 3.0
+            and clearance > 0.0
+            and length(direction) > 0.001 then
+            local body = body_length(frame)
+            local multiplier = config.speed_multiplier or 1.0
+            self.stuck_escape_active = true
+            self.stuck_escape_direction = f32_vec(direction)
+            self.stuck_escape_distance = f32(clamp(
+                clearance * 0.86, body * 1.35, body * 2.25))
+            self.stuck_escape_speed = f32(
+                random("stuck.escape_speed", 188.0, 238.0)
+                    * multiplier)
+            self.stuck_escape_clear_timer = f32(0.0)
+            self.stuck_escape_repath_timer = f32(0.42)
+            self.recovery_timer = f32(0.0)
+            self.recovery_direction =
+                f32_vec(self.stuck_escape_direction)
+            return
+        end
+
+        if self.stuck_escape_active or self.recovery_timer > 0.0 then
+            return
+        end
+
         if clearance > 0.0
             and (blocked_time >= 0.16 or edge_dwell_time >= 0.72)
             and length(direction) > 0.001 then
@@ -656,6 +743,9 @@ local function new_controller(config, host)
         if stopped_state then
             self.recovery_timer = f32(0.0)
             return false, vec()
+        end
+        if self.stuck_escape_active then
+            return true, normalized(self.stuck_escape_direction)
         end
         return self.recovery_timer > 0.0,
             normalized(self.recovery_direction)
@@ -680,6 +770,27 @@ local function new_controller(config, host)
         local speed = body.speed or 0.0
         local multiplier = config.speed_multiplier or 1.0
         local current_forward = forward(heading)
+
+        -- A mouse threat always takes priority. Otherwise a persistent
+        -- collision escape temporarily returns to ordinary roaming so timed
+        -- food/corner targets cannot overwrite the detour on every frame.
+        if self.stuck_escape_active
+            and (is("startled") or is("flee")) then
+            self.stuck_escape_active = false
+            self.stuck_escape_clear_timer = f32(0.0)
+            self.stuck_escape_repath_timer = f32(0.0)
+        elseif self.stuck_escape_active
+            and not is("wander")
+            and self.fsm:can("to_wander") then
+            transition("wander", frame)
+        end
+
+        if self.stuck_escape_active then
+            self.target = f32_vec(add(
+                position,
+                mul(self.stuck_escape_direction,
+                    self.stuck_escape_distance)))
+        end
         local direction = normalized(sub(self.target, position))
 
         local intentionally_still =
@@ -761,9 +872,13 @@ local function new_controller(config, host)
         local recovery_active, recovery_direction =
             recovery_feedback(frame)
         if recovery_active and length(recovery_direction) > 0.001 then
-            direction = normalized(add(
-                mul(direction, 0.16),
-                mul(recovery_direction, 2.85)))
+            if self.stuck_escape_active then
+                direction = recovery_direction
+            else
+                direction = normalized(add(
+                    mul(direction, 0.16),
+                    mul(recovery_direction, 2.85)))
+            end
             urgency = math.max(urgency, 0.88)
         end
 
@@ -827,6 +942,9 @@ local function new_controller(config, host)
         if recovery_active then
             turn_rate = math.max(turn_rate, 12.5)
         end
+        if self.stuck_escape_active then
+            turn_rate = math.max(turn_rate, 14.5)
+        end
 
         local desired_speed = self.desired_speed
         if is("wander") then
@@ -863,6 +981,10 @@ local function new_controller(config, host)
             desired_speed =
                 math.max(desired_speed, multiplier * 150.0)
         end
+        if self.stuck_escape_active then
+            desired_speed =
+                math.max(desired_speed, self.stuck_escape_speed)
+        end
 
         local acceleration
         if is("flee") then
@@ -877,6 +999,9 @@ local function new_controller(config, host)
         if urgency > 0.0 then
             acceleration = math.max(
                 acceleration, 980.0 + moving_urgency * 520.0)
+        end
+        if self.stuck_escape_active then
+            acceleration = math.max(acceleration, 1250.0)
         end
 
         -- Scuttle uses the speed resulting from this frame's acceleration,

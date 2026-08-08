@@ -11,13 +11,28 @@ use bug_runtime::contract::is_valid_identifier;
 pub enum DefaultMode {
     Single,
     Swarm20,
+    Turtle,
 }
 
 impl DefaultMode {
     const fn count(self) -> usize {
         match self {
-            Self::Single => 1,
+            Self::Single | Self::Turtle => 1,
             Self::Swarm20 => 20,
+        }
+    }
+
+    const fn species(self) -> &'static str {
+        match self {
+            Self::Single | Self::Swarm20 => "cockroach",
+            Self::Turtle => "turtle",
+        }
+    }
+
+    const fn speed_multiplier(self) -> f32 {
+        match self {
+            Self::Single | Self::Swarm20 => 3.0,
+            Self::Turtle => 1.0,
         }
     }
 }
@@ -42,11 +57,11 @@ impl Options {
     #[must_use]
     pub fn defaults(mode: DefaultMode) -> Self {
         Self {
-            species: "cockroach".to_owned(),
+            species: mode.species().to_owned(),
             species_path: None,
             asset: None,
             body_size: None,
-            speed_multiplier: 3.0,
+            speed_multiplier: mode.speed_multiplier(),
             display: 0,
             count: mode.count(),
             seed: None,
@@ -244,11 +259,11 @@ pub fn usage(executable: &str, mode: DefaultMode) -> String {
         "\
 Scriptable Bug Overlay (Rust + Lua)\n\n\
 Usage: {executable} [options]\n\
-  --species ID          species package under bugs/ (default cockroach)\n\
+  --species ID          species package under bugs/ (default {})\n\
   --species-path DIR    explicit species package directory\n\
   --asset PATH          alternate compatible atlas PNG\n\
   --size N              fixed body length in pixels (100..520; default auto)\n\
-  --speed N             speed multiplier (0.25..3; default 3)\n\
+  --speed N             speed multiplier (0.25..3; default {})\n\
   --display N           display index (default 0)\n\
   --count N             bug count (1..50; default {})\n\
   --seed N              deterministic master seed\n\
@@ -259,6 +274,8 @@ Usage: {executable} [options]\n\
 Windows single-pet hotkeys:\n\
   Ctrl+Alt+F            place or move food bait\n\
   Ctrl+Alt+Q            quit\n",
+        mode.species(),
+        mode.speed_multiplier(),
         mode.count()
     )
 }
@@ -272,19 +289,20 @@ mod tests {
     }
 
     #[test]
-    fn modes_only_change_default_count() {
-        assert_eq!(
-            parse(args(&["one.exe"]), DefaultMode::Single)
-                .expect("defaults")
-                .count,
-            1
-        );
-        assert_eq!(
-            parse(args(&["many.exe"]), DefaultMode::Swarm20)
-                .expect("defaults")
-                .count,
-            20
-        );
+    fn modes_select_expected_pet_defaults() {
+        let single = parse(args(&["one.exe"]), DefaultMode::Single).expect("defaults");
+        assert_eq!(single.count, 1);
+        assert_eq!(single.species, "cockroach");
+        assert_eq!(single.speed_multiplier, 3.0);
+
+        let swarm = parse(args(&["many.exe"]), DefaultMode::Swarm20).expect("defaults");
+        assert_eq!(swarm.count, 20);
+        assert_eq!(swarm.species, "cockroach");
+
+        let turtle = parse(args(&["turtle.exe"]), DefaultMode::Turtle).expect("defaults");
+        assert_eq!(turtle.count, 1);
+        assert_eq!(turtle.species, "turtle");
+        assert_eq!(turtle.speed_multiplier, 1.0);
     }
 
     #[test]

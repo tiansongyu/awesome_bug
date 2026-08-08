@@ -233,6 +233,7 @@ try {
     $required = @(
         "cockroach_overlay.exe",
         "cockroach_swarm_20.exe",
+        "turtle_overlay.exe",
         "SDL2.dll",
         "README.txt",
         "LICENSE",
@@ -243,6 +244,10 @@ try {
         "bugs/cockroach/manifest.lua",
         "bugs/cockroach/behavior.lua",
         "bugs/cockroach/cockroach_parts_atlas.png",
+        "bugs/turtle/manifest.lua",
+        "bugs/turtle/behavior.lua",
+        "bugs/turtle/turtle_parts_atlas.png",
+        "bugs/turtle/ARTWORK.md",
         "bugs/template/manifest.lua",
         "bugs/template/behavior.lua",
         "bugs/template/atlas.png",
@@ -277,7 +282,7 @@ try {
     Assert-SameFile `
         (Join-Path $ProjectRoot "packaging/THIRD_PARTY_LICENSES.txt") `
         (Join-Path $payload "THIRD_PARTY_LICENSES.txt")
-    foreach ($packageName in @("runtime", "cockroach", "template")) {
+    foreach ($packageName in @("runtime", "cockroach", "turtle", "template")) {
         Assert-SameTree `
             (Join-Path $ProjectRoot "bugs/$packageName") `
             (Join-Path $payload "bugs/$packageName")
@@ -347,7 +352,8 @@ public static class PackageIconProbe {
 
     foreach ($name in @(
         "cockroach_overlay.exe",
-        "cockroach_swarm_20.exe"
+        "cockroach_swarm_20.exe",
+        "turtle_overlay.exe"
     )) {
         $executable = Join-Path $payload $name
         Assert-WindowsGuiPe $executable

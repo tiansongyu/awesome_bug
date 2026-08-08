@@ -39,7 +39,7 @@ WINDOWS_ISO=/path/to/Win11_x64.iso ./vm/windows11/create-vm.sh
 C:\CockroachOverlay
 ```
 
-桌面上会生成单只和 20 只版本的快捷方式。
+桌面上会生成单只和 20 只蟑螂版本的快捷方式；测试光盘还包含小乌龟版本。
 
 ## 后续使用
 
@@ -69,13 +69,14 @@ $HOME/VirtualMachines/cockroach-win11
 ./vm/windows11/make-test-iso.sh
 ```
 
-测试 ISO 中的 `run-rust-smoke.cmd` 执行单只和 20 只的有界 trace 检查。
+测试 ISO 中的 `run-rust-smoke.cmd` 执行单只蟑螂、20 只蟑螂和小乌龟的有界
+trace 检查。
 `run-interaction-probe.cmd` 用于 1280×800 测试桌面：它把左下方测试图标拖到
 默认蟑螂附近并短暂停留，便于观察移动图标避让、有限脱困和点击穿透；坐标也可
 作为 PowerShell 参数覆盖。`run-bait-trace.cmd` 会投放食物并验证 1,800 帧内
 同时出现 `seek-food`、`feeding`，且没有 controller quarantine。
-`run-single-live.cmd` 和 `run-swarm-live.cmd` 会先清理旧测试进程，再以固定种子
-启动唯一一轮持续交互测试，避免重复窗口影响观察。
+`run-single-live.cmd`、`run-swarm-live.cmd` 和 `run-turtle-live.cmd` 会先清理
+旧测试进程，再以固定种子启动唯一一轮持续交互测试，避免重复窗口影响观察。
 
 本配置只用于本机程序测试。Windows 通用安装密钥只负责选择 Pro
 版本，不会激活 Windows；请根据自己的许可情况完成激活。

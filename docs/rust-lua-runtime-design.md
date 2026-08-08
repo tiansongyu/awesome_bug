@@ -48,7 +48,7 @@ Windows / Explorer / input
 ```
 
 `bug-runtime` 不依赖 SDL 或 Win32，可以在无窗口环境运行完整单元、锁步和压力
-测试。`bug-windows` 是唯一桌面宿主；它的两个可执行入口在非 Windows 目标直接
+测试。`bug-windows` 是唯一桌面宿主；它的三个可执行入口在非 Windows 目标直接
 拒绝编译。
 
 ## 3. 仓库结构
@@ -56,10 +56,11 @@ Windows / Explorer / input
 ```text
 crates/
   bug-runtime/          通用契约、Lua、安全限制、运动和 rig
-  bug-windows/          SDL/Win32 宿主和两个 Windows 入口
+  bug-windows/          SDL/Win32 宿主和三个 Windows 入口
 bugs/
   runtime/fsm.lua       所有物种共享的 FSM 实现
   cockroach/            当前蟑螂物种
+  turtle/               可爱小乌龟物种
   template/             最小可复制物种
 scripts/
   build-windows-gnu.sh  Ubuntu → Windows GNU 交叉构建
@@ -82,6 +83,7 @@ vm/windows11/           Windows 11 验证工具
 - 身体默认长度、覆盖窗口比例、OBB 半宽/半长
 - 部件名、源矩形、枢轴、附着点和层级
 - 可选能力，例如食物诱饵
+- 可选渲染风格，例如 `render.bait = "crumb"` 或 `"lettuce"`
 
 加载器限制路径必须位于物种根目录内，拒绝软链接逃逸、未知字段、数组空洞、
 重复部件、越界源矩形、非有限数和不合法标识符。
@@ -119,7 +121,7 @@ Lua 没有文件、网络、进程、动态模块、调试、字节码导出或�
 - `dt`、`clock`
 - 当前身体位置、朝向、速度和长度
 - work area
-- 鼠标位置与速度
+- 鼠标位置、速度、左键当前状态和按下沿
 - 食物位置
 - 四个角落传感器
 - 障碍物摘要
@@ -151,7 +153,14 @@ Lua 同时拥有：
 
 Rust 不认识上述状态名。
 
-## 6. 硬运动约束
+## 6. 小乌龟行为
+
+小乌龟使用独立 Lua FSM 管理散步、慢走、观察、停顿、好奇、后退、缩壳、
+角落休息、寻找菜叶和进食。四条腿按对角相位摆动，头、尾与龟壳轻微联动；
+鼠标平缓靠近时观察，快速靠近时后退，附近左键按下沿触发缩壳。物种默认速度
+倍率为 1，并复用通用的图标硬碰撞和连续受阻 3 秒后的净空脱困反馈。
+
+## 7. 硬运动约束
 
 碰撞体仅来自 manifest 中的身体 OBB。腿、触须、阴影和透明画布不参与碰撞。
 
@@ -170,7 +179,7 @@ Rust 不认识上述状态名。
 允许在原重叠集合内短暂加深，但每步有界，并且连续扫掠保证不进入原本无关的
 静态图标。
 
-## 7. Explorer 图标
+## 8. Explorer 图标
 
 桌面在前台时，宿主通过 `SysListView32` 读取图标与文字的实际矩形。快照具有：
 
@@ -189,7 +198,7 @@ Rust 不认识上述状态名。
 超时后的 use-after-free、跨进程数据竞争、60 Hz 重连风暴和一次故障造成的永久
 图标缓存陈旧。
 
-## 8. Windows 窗口与渲染
+## 9. Windows 窗口与渲染
 
 每只虫子拥有一个小型 SDL software surface 和 Win32 layered window：
 
@@ -208,7 +217,7 @@ PNG 先由 Rust 解码为受尺寸/内存限制的 RGBA8，再上传到每个 re
 Per-Monitor V2 在 SDL video 初始化前启用。显示拓扑或 DPI 改变时只重建 native
 窗口和 renderer；Lua controller、FSM 状态及 RNG 流保持不变。
 
-## 9. 实例、随机数和复现
+## 10. 实例、随机数和复现
 
 一个世界拥有一个 Lua VM 和一份已验证的行为 descriptor。每个实例拥有：
 
@@ -225,7 +234,7 @@ Per-Monitor V2 在 SDL video 初始化前启用。显示拓扑或 DPI 改变时�
 20 只模式先按显示器比例划分格子，再做确定性抖动和图标安全重定位；实例之间
 不会共享计时器、姿态或随机调用顺序。
 
-## 10. 资源、错误和发布
+## 11. 资源、错误和发布
 
 资源只相对可执行文件目录发现，启动工作目录不会影响加载。启动在显示第一个
 窗口前完成 manifest、behavior 和 atlas 验证。
@@ -242,9 +251,11 @@ Per-Monitor V2 在 SDL video 初始化前启用。显示拓扑或 DPI 改变时�
 windows-x64/
   cockroach_overlay.exe
   cockroach_swarm_20.exe
+  turtle_overlay.exe
   SDL2.dll
   bugs/runtime/
   bugs/cockroach/
+  bugs/turtle/
   bugs/template/
   README.txt
   LICENSE
@@ -256,7 +267,7 @@ windows-x64/
 CI 在 Ubuntu 运行无窗口 Rust 检查，在 Windows 使用 MSVC 产出并验证 x64 GUI
 ZIP。GNU 交叉脚本提供本地第二条构建路径。SDL 下载固定版本和 SHA-256。
 
-## 11. 验证门槛
+## 12. 验证门槛
 
 - Rustfmt 和 Clippy `-D warnings`
 - contract/species/Lua sandbox/RNG/motion/rig 单元测试
@@ -270,7 +281,7 @@ ZIP。GNU 交叉脚本提供本地第二条构建路径。SDL 下载固定版本
 
 锁步 fixture 保留 C++ 来源说明只是迁移证据，不构成可构建的旧实现。
 
-## 12. 添加新物种
+## 13. 添加新物种
 
 1. 复制 `bugs/template`。
 2. 使用新的稳定 `id`。

@@ -3,8 +3,8 @@
 ## License scope
 
 The MIT License in `LICENSE` applies to the project's source code and
-project-authored textual documentation. It does not apply to the raster
-artwork identified below.
+project-authored textual documentation. Raster artwork has the family-specific
+license scope and provenance described below.
 
 ## Cockroach artwork
 
@@ -37,3 +37,21 @@ affiliation or endorsement is implied.
 
 For unambiguous open-source redistribution, replace this artwork family with
 assets whose provenance and redistribution license are documented.
+
+## Turtle artwork
+
+The following project-authored artwork was produced for this repository using
+OpenAI's built-in image generation tool, followed by chroma-key removal,
+component masking, atlas composition, and icon resizing:
+
+- `bugs/turtle/turtle_parts_atlas.png`
+- `packaging/turtle.ico`
+- `docs/screenshots/windows11-turtle-pet.png`, insofar as it reproduces the
+  turtle artwork
+
+The generation brief requested an exact orthographic top-down, friendly
+juvenile land tortoise rendered as polished semi-realistic 3D game art on a
+flat chroma background. The checked-in `bugs/turtle/ARTWORK.md` records the
+asset layout and workflow. To the extent the project contributors hold
+copyright or other licensable rights in this generated and edited artwork,
+those rights are offered under the repository's MIT License.

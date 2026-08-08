@@ -141,7 +141,7 @@ fi
 cargo build -p bug-windows --bins --release --target "${target}" --locked
 
 release_dir="${project_dir}/target/${target}/release"
-for executable in cockroach_overlay.exe cockroach_swarm_20.exe; do
+for executable in cockroach_overlay.exe cockroach_swarm_20.exe turtle_overlay.exe; do
     if [[ ! -s "${release_dir}/${executable}" ]]; then
         echo "Rust did not produce ${release_dir}/${executable}" >&2
         exit 1
@@ -156,6 +156,7 @@ mkdir -p -- "${payload_dir}" "${working_dir}"
 
 install -m 0755 "${release_dir}/cockroach_overlay.exe" "${payload_dir}/"
 install -m 0755 "${release_dir}/cockroach_swarm_20.exe" "${payload_dir}/"
+install -m 0755 "${release_dir}/turtle_overlay.exe" "${payload_dir}/"
 install -m 0755 "${sdl_dll}" "${payload_dir}/SDL2.dll"
 install -m 0644 "${project_dir}/packaging/WINDOWS-README.txt" \
     "${payload_dir}/README.txt"
@@ -166,7 +167,7 @@ install -m 0644 "${project_dir}/packaging/THIRD_PARTY_LICENSES.txt" \
     "${payload_dir}/THIRD_PARTY_LICENSES.txt"
 
 mkdir -p -- "${payload_dir}/bugs"
-for package in runtime cockroach template; do
+for package in runtime cockroach turtle template; do
     if [[ ! -d "${project_dir}/bugs/${package}" ]]; then
         echo "Required species package is missing: bugs/${package}" >&2
         exit 1
@@ -189,6 +190,8 @@ if [[ "${run_smoke}" == true ]]; then
             "${payload_dir}/cockroach_overlay.exe" --help
         WINEDEBUG=-all "${wine_command}" \
             "${payload_dir}/cockroach_swarm_20.exe" --help
+        WINEDEBUG=-all "${wine_command}" \
+            "${payload_dir}/turtle_overlay.exe" --help
     )
 fi
 if [[ "${ui_smoke}" == true ]]; then
@@ -203,6 +206,9 @@ if [[ "${ui_smoke}" == true ]]; then
             --frames 3 --seed 1
         WINEDEBUG=-all timeout 30s "${wine_command}" \
             "${payload_dir}/cockroach_swarm_20.exe" \
+            --frames 3 --seed 1
+        WINEDEBUG=-all timeout 30s "${wine_command}" \
+            "${payload_dir}/turtle_overlay.exe" \
             --frames 3 --seed 1
     )
 fi

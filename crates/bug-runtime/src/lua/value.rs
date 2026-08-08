@@ -437,6 +437,14 @@ pub(crate) fn frame_table(
                 ("y", Value::Number(f64::from(frame.cursor.position.y))),
                 ("vx", Value::Number(f64::from(frame.cursor.velocity.x))),
                 ("vy", Value::Number(f64::from(frame.cursor.velocity.y))),
+                (
+                    "left_button_down",
+                    Value::Boolean(frame.cursor.left_button_down),
+                ),
+                (
+                    "left_button_pressed",
+                    Value::Boolean(frame.cursor.left_button_pressed),
+                ),
             ],
         )?,
     )?;

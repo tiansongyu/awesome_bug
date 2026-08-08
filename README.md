@@ -4,30 +4,47 @@
 [![macOS package](https://github.com/tiansongyu/awesome_bug/actions/workflows/macos-package.yml/badge.svg)](https://github.com/tiansongyu/awesome_bug/actions/workflows/macos-package.yml)
 
 一个 Windows 11 / macOS 桌面宠物框架：Rust 负责安全、碰撞、SDL2 渲染和
-原生窗口集成，Lua 负责虫子的全部行为。仓库自带一只具有独立六足、双触须和
-真实移动节奏的蟑螂，以及可复制的新物种模板。
+原生窗口集成，Lua 负责宠物的全部行为。仓库自带写实蟑螂、可爱小乌龟和可复制
+的新物种模板。两种宠物共用同一套受限 Lua 运行时，但有独立的美术、碰撞体、
+状态机、步态、默认速度和程序图标。
 
 ![Rust + Lua 蟑螂桌面宠物](docs/screenshots/windows11-desktop-pet.png)
+
+![Rust + Lua 小乌龟桌面宠物](docs/screenshots/windows11-turtle-pet.png)
 
 > 提供 Windows x64 和 macOS（Apple Silicon / Intel 原生构建）桌面程序。
 > Linux 可运行无窗口核心测试，但不提供 Linux 桌面应用。
 
-## 已实现机制
+## 通用机制
 
-- Lua FSM 管理 `wander`、`creep`、`pause`、`startled`、`flee`、
-  `seek-corner`、`lurk`、`groom`、`seek-food` 和 `feeding`。
-- 快速巡游为主，穿插慢速移动、停顿、速度脉冲和身体微摆。
-- 鼠标快速接近或进入警戒范围时，蟑螂受惊并加速逃跑。
-- 单只模式会在屏幕角落潜伏；身体静止时触须仍探测，并周期性清洁触须。
-- `Ctrl+Alt+F` 在鼠标位置投放食物；食物位于桌面/普通窗口之上、蟑螂之下。
-- 六条腿独立绘制并采用交替三足步态；两根触须具有不同相位和状态姿态。
-- Windows 下身体使用定向包围盒避开 Explorer 图标和文字；腿、触须不参与碰撞。
-- Windows 下拖拽图标时主动远离。被图标覆盖或夹住时逐帧脱困，不跨屏瞬移、
-  不长期卡住。macOS 因 Finder 没有公开稳定的图标矩形接口，不启用桌面图标碰撞。
+- `Ctrl+Alt+F` 在鼠标位置投放食物；食物位于桌面/普通窗口之上、宠物之下。
+- Windows 下身体使用定向包围盒避开 Explorer 图标和文字；伸出的肢体不参与碰撞。
+- Windows 下拖拽图标时主动远离。连续受阻 3 秒后会放弃旧目标并沿净空方向持续
+  脱困；被图标覆盖或夹住时仍逐帧移动，不跨屏瞬移、不长期卡住。macOS 因
+  Finder 没有公开稳定的图标矩形接口，不启用桌面图标碰撞。
 - 按显示器物理分辨率动态缩放，支持负坐标多显示器和 Per-Monitor V2 DPI。
-- 窗口背景透明、虫体保持不透明；覆盖层点击穿透、始终置顶且不抢键盘焦点。
+- 窗口背景透明、宠物本体保持不透明；覆盖层点击穿透、始终置顶且不抢键盘焦点。
 - 单只与 20 只版本共用同一运行时；20 只拥有独立体型、位置、姿态和随机流。
 - `--seed`、`--frames`、`--trace` 支持确定性复现和自动验证。
+
+### 蟑螂
+
+- Lua FSM 管理快速巡游、慢速爬行、停顿、受惊逃跑、角落潜伏、触须清洁、
+  觅食和进食。
+- 六条腿采用交替三足步态；两根触须有独立相位和不同状态姿态。
+- 默认速度倍率为 3，穿插速度脉冲和身体微摆。
+
+### 小乌龟
+
+- 独立程序 `turtle_overlay.exe`，使用柔和配色的正俯视高分辨率部件图集和
+  小乌龟专属程序图标；默认体长约 118 像素、速度倍率为 1。
+- Lua FSM 管理散步、慢走、观察、停顿、好奇、后退、缩壳、角落休息、寻找
+  菜叶和进食。
+- 四条腿按对角相位独立迈步，头、尾和龟壳有轻微联动；静止时仍会缓慢探头。
+- 鼠标平缓靠近时会好奇观察，快速靠近或距离过近时会后退；点击乌龟会立即
+  停下，以平滑动画把头和四肢缩进壳中，并在随机等待 3–10 秒后平滑伸出、
+  恢复散步。
+- 食物对小乌龟显示为不透明绿色菜叶，对蟑螂仍显示食物碎屑。
 
 ## 快速使用
 
@@ -37,6 +54,7 @@ Windows 可从 [Windows x64 package CI](https://github.com/tiansongyu/awesome_bu
 ```text
 cockroach_overlay.exe       单只桌面宠物
 cockroach_swarm_20.exe      默认 20 只
+turtle_overlay.exe          单只小乌龟桌面宠物
 ```
 
 请保持 EXE、`SDL2.dll` 和 `bugs/` 的相对位置不变。资源路径锚定到 EXE，
@@ -66,7 +84,7 @@ Cockroach Swarm 20.app      默认 20 只
 --species-path DIR    使用指定物种目录
 --asset PATH          覆盖兼容 atlas
 --size N              固定身体长度，100..520 像素
---speed N             速度倍率，0.25..3；默认 3
+--speed N             速度倍率，0.25..3；蟑螂默认 3，乌龟默认 1
 --display N           显示器序号
 --count N             实例数，1..50
 --seed N              固定主种子
@@ -81,6 +99,7 @@ Cockroach Swarm 20.app      默认 20 只
 ```powershell
 .\cockroach_overlay.exe --size 200 --seed 42
 .\cockroach_swarm_20.exe --count 20
+.\turtle_overlay.exe --seed 42
 .\cockroach_overlay.exe --species template
 ```
 
@@ -114,7 +133,7 @@ Lua 5.4 运行在 32 MiB 内存和每次调用 100,000 指令的预算中。脚�
 
 完整设计见 [Rust + Lua 运行时设计](docs/rust-lua-runtime-design.md)。
 
-## 添加新虫子
+## 添加新宠物
 
 复制 `bugs/template/`，修改三个文件：
 
@@ -131,7 +150,7 @@ bugs/my_bug/
 .\cockroach_overlay.exe --species my_bug
 ```
 
-宿主没有蟑螂专用状态，也不要求 native subclass 或主循环修改。模板说明见
+宿主没有蟑螂或乌龟专用状态，也不要求 native subclass 或主循环修改。模板说明见
 [`bugs/template/README.md`](bugs/template/README.md)。
 
 ## 构建
@@ -199,16 +218,18 @@ target/debug/cockroach_swarm_20 --frames 120 --seed 42
 ```
 
 测试集包括严格 manifest/ABI、Lua sandbox、Tagged RNG、身体 OBB、连续碰撞、
-对称图标夹缝、rig、2,400 帧迁移锁步和 100,000 帧压力测试。
+对称图标夹缝、rig、2,400 帧迁移锁步、蟑螂 100,000 帧压力测试，以及小乌龟
+真实物种包、独立步态、点击缩壳和 3 秒脱困测试。
 
-Windows 11 VM smoke 会运行单只 360 帧和 20 只 × 120 帧，检查实例数、
-quarantine、最大单帧位移和产物 SHA。VM 工具见
+Windows 11 VM smoke 会运行单只蟑螂 360 帧、20 只 × 120 帧和小乌龟 600 帧，
+检查实例数、quarantine、最大单帧位移和产物 SHA。VM 工具见
 [`vm/windows11/README.md`](vm/windows11/README.md)。
 
 ## 许可
 
 代码与项目自有文本采用 [MIT License](LICENSE)。
 
-蟑螂 raster 美术的上游作者、URL 和授权未被记录，因此不包含在 MIT 授权中；
-使用和再分发前请阅读 [ASSET-NOTICE.md](ASSET-NOTICE.md)。第三方软件许可随
-Windows 包一并提供。
+小乌龟美术由本项目通过生成式图像工作流制作，并在贡献者拥有权利的范围内
+随项目按 MIT 提供。蟑螂 raster 美术的上游作者、URL 和授权未被记录，因此
+不包含在 MIT 授权中；使用和再分发前请阅读
+[ASSET-NOTICE.md](ASSET-NOTICE.md)。第三方软件许可随 Windows 包一并提供。

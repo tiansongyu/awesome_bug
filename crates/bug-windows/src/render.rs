@@ -7,6 +7,7 @@ use std::io::{BufRead, BufReader, Cursor, Seek};
 use std::path::{Path, PathBuf};
 
 use bug_runtime::rig::{DrawCommand, DrawPass, RigPlan};
+use bug_runtime::species::BaitStyle;
 use png::{BitDepth, ColorType, Decoder, Limits, Transformations};
 use sdl2::pixels::{Color, PixelFormatEnum};
 use sdl2::rect::{FPoint, FRect, Rect};
@@ -512,7 +513,7 @@ fn clear_transparent(canvas: &mut SurfaceCanvas<'static>) {
 
 /// Draws the existing 84x84 food bait without a texture.  All food pixels are
 /// fully opaque; the transparent background remains click-through.
-pub fn render_bait(window: &mut LayeredWindow) -> Result<(), RenderError> {
+pub fn render_bait(window: &mut LayeredWindow, style: BaitStyle) -> Result<(), RenderError> {
     if window.dimensions() != (BAIT_OVERLAY_SIZE, BAIT_OVERLAY_SIZE) {
         return Err(RenderError::InvalidPlan(format!(
             "bait overlay must be {BAIT_OVERLAY_SIZE}x{BAIT_OVERLAY_SIZE}"
@@ -520,6 +521,13 @@ pub fn render_bait(window: &mut LayeredWindow) -> Result<(), RenderError> {
     }
     let canvas = window.canvas_mut();
     clear_transparent(canvas);
+    match style {
+        BaitStyle::Crumb => render_crumb_bait(canvas),
+        BaitStyle::Lettuce => render_lettuce_bait(canvas),
+    }
+}
+
+fn render_crumb_bait(canvas: &mut SurfaceCanvas<'static>) -> Result<(), RenderError> {
     let center = BAIT_OVERLAY_SIZE as f32 * 0.5;
     for y in -17..=17 {
         let normalized_y = y as f32 / 17.0;
@@ -548,6 +556,54 @@ pub fn render_bait(window: &mut LayeredWindow) -> Result<(), RenderError> {
         canvas
             .fill_frect(crumb)
             .map_err(|message| RenderError::sdl("draw food crumb", message))?;
+    }
+    Ok(())
+}
+
+fn render_lettuce_bait(canvas: &mut SurfaceCanvas<'static>) -> Result<(), RenderError> {
+    let center = BAIT_OVERLAY_SIZE as f32 * 0.5;
+    for y in -27_i32..=27 {
+        let normalized_y = y as f32 / 27.0;
+        let base_width = (1.0 - normalized_y * normalized_y).max(0.0).sqrt() * 29.0;
+        let ruffle = (y as f32 * 0.72).sin() * 2.2 + (y as f32 * 1.31).cos() * 1.1;
+        let width = (base_width + ruffle).max(1.0);
+        let edge = !(-23..=23).contains(&y);
+        canvas.set_draw_color(if edge {
+            Color::RGBA(51, 116, 54, 255)
+        } else if y.rem_euclid(7) <= 2 {
+            Color::RGBA(115, 181, 82, 255)
+        } else {
+            Color::RGBA(92, 161, 68, 255)
+        });
+        canvas
+            .draw_fline(
+                FPoint::new(center - width, center + y as f32),
+                FPoint::new(center + width, center + y as f32),
+            )
+            .map_err(|message| RenderError::sdl("draw lettuce leaf", message))?;
+    }
+
+    canvas.set_draw_color(Color::RGBA(189, 220, 121, 255));
+    canvas
+        .draw_fline(
+            FPoint::new(center, center - 24.0),
+            FPoint::new(center, center + 27.0),
+        )
+        .map_err(|message| RenderError::sdl("draw lettuce midrib", message))?;
+    canvas.set_draw_color(Color::RGBA(151, 201, 98, 255));
+    for (start_y, end_x, end_y) in [
+        (-17.0, -17.0, -9.0),
+        (-11.0, 19.0, -2.0),
+        (-4.0, -23.0, 7.0),
+        (4.0, 22.0, 15.0),
+        (11.0, -18.0, 21.0),
+    ] {
+        canvas
+            .draw_fline(
+                FPoint::new(center, center + start_y),
+                FPoint::new(center + end_x, center + end_y),
+            )
+            .map_err(|message| RenderError::sdl("draw lettuce vein", message))?;
     }
     Ok(())
 }

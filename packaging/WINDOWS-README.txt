@@ -10,7 +10,11 @@ cockroach_overlay.exe
 cockroach_swarm_20.exe
   默认生成 20 只位置、体型和运动相位不同的蟑螂。
 
-请保持两个 EXE、SDL2.dll 和 bugs 文件夹的相对位置不变。程序从 EXE
+turtle_overlay.exe
+  单只可爱小乌龟。具有四肢独立步态、鼠标好奇/后退、点击缩壳、角落休息
+  和菜叶诱饵。
+
+请保持三个 EXE、SDL2.dll 和 bugs 文件夹的相对位置不变。程序从 EXE
 旁边发现 Lua 行为脚本和贴图，因此可以从任意工作目录启动。
 
 主要机制
@@ -22,7 +26,9 @@ cockroach_swarm_20.exe
 * 蟑螂尺寸按显示器物理像素动态缩放；默认速度倍率为 3。
 * 桌面位于前台时，仅使用躯干碰撞体绕开图标和文字区域。腿和触须不参与
   碰撞。拖拽图标时会主动远离，受困时会探测空隙脱离，不跨屏瞬移。
-* 食物位于普通桌面窗口之上、蟑螂之下。
+* 食物位于普通桌面窗口之上、宠物之下。
+* 小乌龟默认速度倍率为 1；鼠标快速靠近会后退，附近点击会缩壳，四肢、头
+  和尾部独立运动；小乌龟的食物绘制为不透明菜叶。
 * Ctrl+Alt+F：在鼠标位置投放或移动食物（单只模式）。
 * Ctrl+Alt+Q：退出。
 
@@ -33,7 +39,7 @@ cockroach_swarm_20.exe
   --species-path DIR    使用一个明确的物种包目录
   --asset PATH          覆盖物种贴图
   --size N              固定身体长度，100..520 像素（默认自动）
-  --speed N             速度倍率，0.25..3（默认 3）
+  --speed N             速度倍率，0.25..3（蟑螂默认 3，乌龟默认 1）
   --display N           显示器序号（默认 0）
   --count N             虫子数量，1..50
   --seed N              固定随机种子，便于复现
@@ -47,13 +53,14 @@ cockroach_swarm_20.exe
 
   cockroach_overlay.exe --size 200
   cockroach_swarm_20.exe --count 20 --seed 42
+  turtle_overlay.exe --seed 42
   cockroach_overlay.exe --species-path D:\bugs\my_beetle
 
 扩展新虫子
 ----------
 
 复制 bugs/template，修改 manifest.lua、behavior.lua 和 atlas.png。宿主不包含
-物种名或蟑螂专用状态；新物种通过同一份严格契约接入。模板的 README.md
+物种名或蟑螂/乌龟专用状态；新物种通过同一份严格契约接入。模板的 README.md
 给出了最小结构说明。
 
 许可与完整性

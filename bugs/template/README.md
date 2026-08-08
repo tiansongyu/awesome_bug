@@ -11,8 +11,11 @@ Copy this directory, rename it, and edit the three self-contained files:
 The runtime loads `manifest.lua` as data. Paths must be relative files inside
 the species directory, part names must be unique, and atlas rectangles must be
 in bounds. Collider half-extents are body-length fractions in `(0, 1]`;
-`render.color` may tint RGB but its alpha must remain `255`. A new species
-never requires native subclassing or a main-loop change.
+`render.color` may tint RGB but its alpha must remain `255`. A bait-capable
+species can select `render.bait = "crumb"` or `"lettuce"`. A new species never
+requires native subclassing or a main-loop change. Cursor input also exposes
+`left_button_down` and the one-frame `left_button_pressed` edge for interactions
+such as the turtle's shell response.
 
 Behavior ABI v1 receives only validated data and a read-only `host` table:
 

@@ -176,6 +176,8 @@ pub struct CursorInput {
     pub valid: bool,
     pub position: Vec2,
     pub velocity: Vec2,
+    pub left_button_down: bool,
+    pub left_button_pressed: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]

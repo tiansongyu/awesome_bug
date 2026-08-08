@@ -117,6 +117,14 @@ pub struct VisualDefinition {
     pub alpha: u8,
     pub shadow_alpha: u8,
     pub shadow_offset: Vec2,
+    pub bait_style: BaitStyle,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum BaitStyle {
+    #[default]
+    Crumb,
+    Lettuce,
 }
 
 impl Default for VisualDefinition {
@@ -128,6 +136,7 @@ impl Default for VisualDefinition {
             alpha: 255,
             shadow_alpha: 0,
             shadow_offset: Vec2::ZERO,
+            bait_style: BaitStyle::Crumb,
         }
     }
 }
@@ -486,7 +495,7 @@ fn parse_visual(reader: &ManifestReader<'_>, manifest: &Table) -> SpeciesResult<
     let Some(render) = reader.optional_table(manifest, "render", "render")? else {
         return Ok(VisualDefinition::default());
     };
-    reader.ensure_fields(&render, "render", &["color", "shadow"])?;
+    reader.ensure_fields(&render, "render", &["color", "shadow", "bait"])?;
     let mut visual = VisualDefinition::default();
     if let Some(value) = reader.optional_value(&render, "color", "render.color")? {
         let color = reader.color(value, "render.color")?;
@@ -507,6 +516,19 @@ fn parse_visual(reader: &ManifestReader<'_>, manifest: &Table) -> SpeciesResult<
         if let Some(value) = reader.optional_value(&shadow, "offset", "render.shadow.offset")? {
             visual.shadow_offset = reader.point(value, MAX_COORDINATE, "render.shadow.offset")?;
         }
+    }
+    if let Some(value) = reader.optional_value(&render, "bait", "render.bait")? {
+        let Value::String(style) = value else {
+            return Err(reader.error("render.bait must be 'crumb' or 'lettuce'"));
+        };
+        let style = style
+            .to_str()
+            .map_err(|error| reader.lua_error("render.bait", error))?;
+        visual.bait_style = match style.as_ref() {
+            "crumb" => BaitStyle::Crumb,
+            "lettuce" => BaitStyle::Lettuce,
+            _ => return Err(reader.error("render.bait must be 'crumb' or 'lettuce'")),
+        };
     }
     Ok(visual)
 }

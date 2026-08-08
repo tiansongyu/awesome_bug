@@ -6,8 +6,10 @@ $installRoot = "C:\RustBugTest"
 $resultPath = Join-Path $env:PUBLIC "rust-bug-vm-result.txt"
 $singleTrace = Join-Path $env:PUBLIC "rust-bug-single.tsv"
 $swarmTrace = Join-Path $env:PUBLIC "rust-bug-swarm.tsv"
+$turtleTrace = Join-Path $env:PUBLIC "rust-bug-turtle.tsv"
 
-Get-Process cockroach_overlay, cockroach_swarm_20 -ErrorAction SilentlyContinue |
+Get-Process cockroach_overlay, cockroach_swarm_20, turtle_overlay `
+    -ErrorAction SilentlyContinue |
     Stop-Process -Force
 
 if (Test-Path -LiteralPath $installRoot) {
@@ -18,12 +20,14 @@ Copy-Item -LiteralPath (Join-Path $mediaRoot "cockroach_overlay.exe") `
     -Destination $installRoot
 Copy-Item -LiteralPath (Join-Path $mediaRoot "cockroach_swarm_20.exe") `
     -Destination $installRoot
+Copy-Item -LiteralPath (Join-Path $mediaRoot "turtle_overlay.exe") `
+    -Destination $installRoot
 Copy-Item -LiteralPath (Join-Path $mediaRoot "SDL2.dll") `
     -Destination $installRoot
 Copy-Item -LiteralPath (Join-Path $mediaRoot "bugs") `
     -Destination $installRoot -Recurse
 
-Remove-Item -LiteralPath $singleTrace, $swarmTrace, $resultPath `
+Remove-Item -LiteralPath $singleTrace, $swarmTrace, $turtleTrace, $resultPath `
     -Force -ErrorAction SilentlyContinue
 
 function Invoke-BoundedCase {
@@ -122,13 +126,38 @@ try {
             '0.000',
             [Globalization.CultureInfo]::InvariantCulture
         ))")
+
+    Invoke-BoundedCase `
+        (Join-Path $installRoot "turtle_overlay.exe") `
+        @("--frames", "600", "--seed", "424242", "--trace", $turtleTrace) `
+        30000
+    $turtle = @(Import-Csv -LiteralPath $turtleTrace -Delimiter "`t")
+    if ($turtle.Count -ne 600) {
+        throw "turtle trace row count is $($turtle.Count), expected 600"
+    }
+    if (@($turtle.instance | Sort-Object -Unique).Count -ne 1) {
+        throw "turtle trace did not contain exactly one instance"
+    }
+    if (@($turtle | Where-Object quarantined -eq "1").Count -ne 0) {
+        throw "turtle controller was quarantined"
+    }
+    $turtleMaximumStep = Get-MaximumStep $turtle
+    if ($turtleMaximumStep -gt 20.0) {
+        throw "turtle trace contains a teleport-sized $turtleMaximumStep px step"
+    }
+    $lines.Add("turtle=PASS rows=$($turtle.Count) states=$(
+        @($turtle.state | Sort-Object -Unique) -join ',') max_step=$(
+        $turtleMaximumStep.ToString(
+            '0.000',
+            [Globalization.CultureInfo]::InvariantCulture
+        ))")
     $lines.Add("result=PASS")
     $resultPassed = $true
 } catch {
     $lines.Add("result=FAIL")
     $lines.Add("error=$($_.Exception.Message)")
 } finally {
-    foreach ($name in "cockroach_overlay", "cockroach_swarm_20") {
+    foreach ($name in "cockroach_overlay", "cockroach_swarm_20", "turtle_overlay") {
         Get-Process $name -ErrorAction SilentlyContinue | Stop-Process -Force
     }
     $lines.Add("overlay_sha256=$(
@@ -138,6 +167,10 @@ try {
     $lines.Add("swarm_sha256=$(
         (Get-FileHash -LiteralPath (
             Join-Path $installRoot 'cockroach_swarm_20.exe'
+        ) -Algorithm SHA256).Hash.ToLowerInvariant())")
+    $lines.Add("turtle_sha256=$(
+        (Get-FileHash -LiteralPath (
+            Join-Path $installRoot 'turtle_overlay.exe'
         ) -Algorithm SHA256).Hash.ToLowerInvariant())")
     $lines | Set-Content -LiteralPath $resultPath -Encoding utf8
     Start-Process notepad.exe -ArgumentList $resultPath

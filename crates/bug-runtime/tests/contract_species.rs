@@ -8,8 +8,8 @@ use bug_runtime::contract::{
 };
 use bug_runtime::math::{Vec2, forward_from_heading, rotate_local, wrap_angle};
 use bug_runtime::species::{
-    MAX_MANIFEST_BYTES, SpeciesErrorKind, load_manifest_source, parse_manifest, read_limited_file,
-    resolve_species_file,
+    BaitStyle, MAX_MANIFEST_BYTES, SpeciesErrorKind, load_manifest_source, parse_manifest,
+    read_limited_file, resolve_species_file,
 };
 use mlua::{Lua, Table};
 
@@ -169,6 +169,7 @@ fn valid_manifest_is_fully_compiled() {
 capabilities = { bait = true },
 render = {
     color = { 190, 191, 192, 255 },
+    bait = "lettuce",
     shadow = { color = { 0, 0, 0, 38 }, offset = { 3, -5 } },
 },
 "#,
@@ -200,6 +201,7 @@ render = {
         (190, 191, 192, 255, 38)
     );
     assert_eq!(species.visual.shadow_offset, Vec2::new(3.0, -5.0));
+    assert_eq!(species.visual.bait_style, BaitStyle::Lettuce);
     assert!(species.behavior_path.is_file());
     assert!(species.atlas.file.is_file());
 
@@ -225,6 +227,7 @@ fn optional_manifest_sections_have_safe_defaults() {
         (255, 255, 255, 255, 0)
     );
     assert_eq!(species.visual.shadow_offset, Vec2::ZERO);
+    assert_eq!(species.visual.bait_style, BaitStyle::Crumb);
 }
 
 #[test]
@@ -260,6 +263,12 @@ fn manifest_rejects_unknown_fields_and_bad_numbers() {
     let error = evaluate_and_parse(&translucent_tree.root, &translucent_script)
         .expect_err("whole-sprite translucency must fail at manifest load");
     assert!(error.message.contains("render.color alpha must be 255"));
+
+    let invalid_bait_script = valid_manifest("render = { bait = \"hay\" },");
+    let invalid_bait_tree = fixture(&invalid_bait_script);
+    let error = evaluate_and_parse(&invalid_bait_tree.root, &invalid_bait_script)
+        .expect_err("unknown bait styles must fail");
+    assert!(error.message.contains("render.bait"));
 }
 
 #[test]

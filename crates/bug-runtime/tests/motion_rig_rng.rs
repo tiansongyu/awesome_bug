@@ -12,7 +12,8 @@ use bug_runtime::rng::{
     Mt19937, RandomError, RandomSample, SplitMix64, TaggedRng, derive_seed, derive_stream_seeds,
 };
 use bug_runtime::species::{
-    AtlasDefinition, BodyDefinition, Capabilities, PartDefinition, Species, VisualDefinition,
+    AtlasDefinition, BaitStyle, BodyDefinition, Capabilities, PartDefinition, Species,
+    VisualDefinition,
 };
 
 fn motion_config() -> MotionSolverConfig {
@@ -151,6 +152,7 @@ fn fixture_species(shadow_alpha: u8) -> Species {
             alpha: 255,
             shadow_alpha,
             shadow_offset: Vec2::new(5.0, 6.0),
+            bait_style: BaitStyle::Crumb,
         },
         capabilities: Capabilities { bait: false },
         parts,

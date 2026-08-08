@@ -193,6 +193,9 @@ try {
     Copy-PayloadFile `
         (Join-Path $TargetDirectory "cockroach_swarm_20.exe") `
         "cockroach_swarm_20.exe" $payloadRoot
+    Copy-PayloadFile `
+        (Join-Path $TargetDirectory "turtle_overlay.exe") `
+        "turtle_overlay.exe" $payloadRoot
     Copy-PayloadFile $SdlDll "SDL2.dll" $payloadRoot
     Copy-PayloadFile `
         (Join-Path $ProjectRoot "packaging/WINDOWS-README.txt") `
@@ -207,7 +210,7 @@ try {
         (Join-Path $ProjectRoot "packaging/THIRD_PARTY_LICENSES.txt") `
         "THIRD_PARTY_LICENSES.txt" $payloadRoot
 
-    foreach ($package in @("runtime", "cockroach", "template")) {
+    foreach ($package in @("runtime", "cockroach", "turtle", "template")) {
         Copy-PayloadTree `
             (Join-Path $ProjectRoot "bugs/$package") `
             "bugs/$package" `
@@ -225,6 +228,10 @@ try {
             (Join-Path $payloadRoot "cockroach_swarm_20.exe") `
             @("--help") `
             $smokeWorkingDirectory
+        Invoke-Smoke `
+            (Join-Path $payloadRoot "turtle_overlay.exe") `
+            @("--help") `
+            $smokeWorkingDirectory
     }
     if ($UiSmoke) {
         Invoke-Smoke `
@@ -234,6 +241,11 @@ try {
             30000
         Invoke-Smoke `
             (Join-Path $payloadRoot "cockroach_swarm_20.exe") `
+            @("--frames", "3", "--seed", "1") `
+            $smokeWorkingDirectory `
+            30000
+        Invoke-Smoke `
+            (Join-Path $payloadRoot "turtle_overlay.exe") `
             @("--frames", "3", "--seed", "1") `
             $smokeWorkingDirectory `
             30000

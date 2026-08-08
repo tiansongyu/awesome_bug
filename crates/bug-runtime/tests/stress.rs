@@ -19,23 +19,50 @@ fn source_root() -> PathBuf {
 
 #[test]
 fn cockroach_runtime_survives_one_hundred_thousand_integrated_frames() {
+    run_integrated_stress(
+        "cockroach",
+        3.0,
+        0x51a7_2e19,
+        100_000,
+        &["wander", "seek-corner", "lurk", "groom", "startled", "flee"],
+    );
+}
+
+#[test]
+fn turtle_runtime_survives_one_hundred_thousand_integrated_frames() {
+    run_integrated_stress(
+        "turtle",
+        1.0,
+        0x7a27_1e19,
+        100_001,
+        &["wander", "retreat", "seek-corner", "corner-rest"],
+    );
+}
+
+fn run_integrated_stress(
+    species_id: &str,
+    speed_multiplier: f32,
+    seed: u32,
+    instance_id: u64,
+    expected_states: &[&str],
+) {
     let root = source_root();
     let host = LuaHost::new(root.join("bugs/runtime/fsm.lua")).expect("checked-in FSM must load");
     let species = host
-        .load_species(root.join("bugs/cockroach"))
-        .expect("cockroach manifest must load");
+        .load_species(root.join("bugs").join(species_id))
+        .expect("species manifest must load");
     let behavior = host
         .load_behavior(&species)
-        .expect("cockroach behavior must load");
+        .expect("species behavior must load");
     let planner = RigPlanner::new(&species);
-    let random = Rc::new(RefCell::new(TaggedRng::generate(0x51a7_2e19)));
+    let random = Rc::new(RefCell::new(TaggedRng::generate(seed)));
     let callback_random = Rc::clone(&random);
     let mut controller = behavior
         .create_controller(
-            100_000,
+            instance_id,
             ControllerConfig {
                 body_length: species.body.default_length,
-                speed_multiplier: 3.0,
+                speed_multiplier,
                 enable_extended_behaviors: true,
                 motion_limits: MotionLimits::default(),
             },
@@ -140,9 +167,9 @@ fn cockroach_runtime_survives_one_hundred_thousand_integrated_frames() {
         clock += f64::from(DT);
     }
 
-    for expected in ["wander", "seek-corner", "lurk", "groom", "startled", "flee"] {
+    for expected in expected_states {
         assert!(
-            states.contains(expected),
+            states.contains(*expected),
             "long run never reached {expected}; observed {states:?}"
         );
     }

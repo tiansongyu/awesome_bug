@@ -1,4 +1,4 @@
-name: Windows x64 package
+name: Windows x64 desktop pets package
 
 on:
   push:
@@ -92,7 +92,7 @@ jobs:
         id: upload
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: cockroach-overlay-windows-x64
+          name: desktop-pets-windows-x64
           path: |
             dist/cockroach-overlay-windows-x64.zip
             dist/cockroach-overlay-windows-x64.zip.sha256
@@ -103,9 +103,10 @@ jobs:
         shell: pwsh
         run: |
           @"
-          ### Windows x64 package
+          ### Windows x64 desktop pets package
 
           - [Download artifact](${{ steps.upload.outputs.artifact-url }})
+          - Programs: single cockroach, 20-cockroach swarm, and single turtle
           - ZIP SHA-256: ``${{ steps.package.outputs.sha256 }}``
           - Toolchain: Rust 1.97.1, MSVC x86-64, SDL 2.32.10
           "@ >> $env:GITHUB_STEP_SUMMARY

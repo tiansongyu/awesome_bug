@@ -716,6 +716,266 @@ fn real_cockroach_package_runs_through_the_generic_host() {
 }
 
 #[test]
+fn real_turtle_package_runs_with_articulated_gait_and_shell_interaction() {
+    let host = host();
+    let species = host
+        .load_species(source_root().join("bugs/turtle"))
+        .expect("turtle manifest must pass the sandboxed loader");
+    let module = host
+        .load_behavior(&species)
+        .expect("turtle behavior must load");
+    let mut controller = module
+        .create_controller(
+            72,
+            ControllerConfig {
+                body_length: species.body.default_length,
+                speed_multiplier: 1.0,
+                enable_extended_behaviors: true,
+                motion_limits: MotionLimits::default(),
+            },
+            constant_random(0.5),
+        )
+        .expect("turtle controller must start");
+    let mut frame = frame();
+    frame.body.length = species.body.default_length;
+    frame.body.speed = 46.0;
+    frame.features.extended_behaviors = true;
+    frame.features.bait = true;
+
+    let left_front = species.part_index("left_front_leg").expect("front leg");
+    let right_front = species.part_index("right_front_leg").expect("front leg");
+    let mut maximum_opposed_leg_rotation = 0.0_f32;
+    for _ in 0..600 {
+        let decision = controller.step(&frame).expect("turtle step");
+        let pose = controller.pose(&frame).expect("turtle pose");
+        assert!(!controller.quarantined(), "{:?}", controller.error());
+        assert!(!decision.state.is_empty());
+        assert!(decision.target.is_finite());
+        assert!(decision.motion.direction.is_finite());
+        assert_eq!(pose.parts.len(), species.parts.len());
+        assert!(pose.body_offset.is_finite());
+        assert!(pose.body_rotation.is_finite());
+        maximum_opposed_leg_rotation = maximum_opposed_leg_rotation
+            .max((pose.parts[left_front].rotation - pose.parts[right_front].rotation).abs());
+        frame.clock += f64::from(frame.dt);
+    }
+
+    assert!(
+        maximum_opposed_leg_rotation > 0.05,
+        "opposing turtle legs must not move as one rigid sprite"
+    );
+
+    frame.cursor.valid = true;
+    frame.cursor.position = frame.body.position;
+    frame.cursor.left_button_down = true;
+    frame.cursor.left_button_pressed = true;
+    let hidden = controller.step(&frame).expect("click interaction");
+    assert_eq!(hidden.state, "shell-hide");
+    assert!(hidden.motion.stop_immediately);
+    let head = species.part_index("head").expect("head part");
+    let tail = species.part_index("tail").expect("tail part");
+    let initial_pose = controller.pose(&frame).expect("initial hiding pose");
+    assert!(
+        initial_pose.parts[head].joint_offset.y.abs() < 0.001,
+        "the head must start retracting from its current pose without snapping"
+    );
+    assert!(
+        initial_pose.parts[tail].joint_offset.y.abs() < 0.001,
+        "the tail must start retracting from its current pose without snapping"
+    );
+
+    frame.cursor.valid = false;
+    frame.cursor.left_button_down = false;
+    frame.cursor.left_button_pressed = false;
+    for _ in 0..18 {
+        let decision = controller.step(&frame).expect("retraction step");
+        assert_eq!(decision.state, "shell-hide");
+        frame.clock += f64::from(frame.dt);
+    }
+    let retracting_pose = controller.pose(&frame).expect("retracting pose");
+    assert!(
+        retracting_pose.parts[head].joint_offset.y > species.body.default_length * 0.08
+            && retracting_pose.parts[head].joint_offset.y < species.body.default_length * 0.18,
+        "the head must move progressively during the retraction animation"
+    );
+
+    for _ in 0..18 {
+        let decision = controller.step(&frame).expect("hiding step");
+        assert_eq!(decision.state, "shell-hide");
+        frame.clock += f64::from(frame.dt);
+    }
+    let tucked_pose = controller.pose(&frame).expect("fully tucked pose");
+    assert!(
+        tucked_pose.parts[head].joint_offset.y > species.body.default_length * 0.20,
+        "the head must retract beneath the shell"
+    );
+    assert!(
+        tucked_pose.parts[tail].joint_offset.y < -species.body.default_length * 0.09,
+        "the tail must retract beneath the shell"
+    );
+
+    // constant_random(0.5) selects an emerge delay of 6.5 seconds. At
+    // 6.9 seconds the 0.8-second extension should be halfway complete.
+    for _ in 0..378 {
+        let decision = controller.step(&frame).expect("hidden waiting step");
+        assert_eq!(decision.state, "shell-hide");
+        frame.clock += f64::from(frame.dt);
+    }
+    let emerging_pose = controller.pose(&frame).expect("emerging pose");
+    assert!(
+        emerging_pose.parts[head].joint_offset.y > species.body.default_length * 0.08
+            && emerging_pose.parts[head].joint_offset.y < species.body.default_length * 0.16,
+        "the head must extend progressively after the randomized wait"
+    );
+
+    let mut emerged = false;
+    for _ in 0..30 {
+        let decision = controller.step(&frame).expect("emergence step");
+        frame.clock += f64::from(frame.dt);
+        if decision.state != "shell-hide" {
+            emerged = true;
+            break;
+        }
+    }
+    assert!(emerged, "the turtle must emerge after the hide cycle");
+    let emerged_pose = controller.pose(&frame).expect("emerged pose");
+    assert!(
+        emerged_pose.parts[head].joint_offset.y.abs() < 0.001,
+        "the head must finish in its normal extended position"
+    );
+}
+
+#[test]
+fn turtle_discards_a_blocked_target_after_three_seconds() {
+    let host = host();
+    let species = host
+        .load_species(source_root().join("bugs/turtle"))
+        .expect("turtle manifest must pass the sandboxed loader");
+    let module = host
+        .load_behavior(&species)
+        .expect("turtle behavior must load");
+    let mut controller = module
+        .create_controller(
+            73,
+            ControllerConfig {
+                body_length: species.body.default_length,
+                speed_multiplier: 1.0,
+                enable_extended_behaviors: false,
+                motion_limits: MotionLimits::default(),
+            },
+            constant_random(0.5),
+        )
+        .expect("turtle controller must start");
+    let mut frame = frame();
+    frame.body.length = species.body.default_length;
+    frame.cursor.valid = false;
+    controller.step(&frame).expect("controller must initialize");
+
+    frame.feedback.blocked_time = 0.20;
+    frame.feedback.recovery_direction = Vec2::new(1.0, 0.0);
+    frame.feedback.recovery_clearance = 170.0;
+    let short_recovery = controller.step(&frame).expect("ordinary recovery");
+    assert!(short_recovery.motion.direction.x > 0.9);
+
+    frame.feedback.blocked_time = 2.99;
+    frame.feedback.recovery_direction = Vec2::new(-1.0, 0.0);
+    let before = controller.step(&frame).expect("sub-threshold recovery");
+    assert!(
+        before.motion.direction.x > 0.9,
+        "sub-threshold recovery must remain committed to the first probe"
+    );
+
+    frame.feedback.blocked_time = 3.0;
+    let escaped = controller.step(&frame).expect("committed turtle escape");
+    assert!(escaped.target.x < frame.body.position.x);
+    assert!(escaped.motion.direction.x < -0.99);
+    assert!(escaped.motion.turn_rate >= 7.0);
+    assert!(escaped.motion.speed >= 58.0);
+}
+
+#[test]
+fn cockroach_commits_to_a_new_route_after_three_seconds_without_progress() {
+    let host = host();
+    let species = host
+        .load_species(source_root().join("bugs/cockroach"))
+        .expect("cockroach manifest must pass the sandboxed loader");
+    let module = host
+        .load_behavior(&species)
+        .expect("cockroach behavior must load");
+    let mut controller = module
+        .create_controller(
+            71,
+            ControllerConfig {
+                body_length: species.body.default_length,
+                speed_multiplier: 3.0,
+                enable_extended_behaviors: false,
+                motion_limits: MotionLimits::default(),
+            },
+            constant_random(0.5),
+        )
+        .expect("cockroach controller must start");
+    let mut frame = frame();
+    frame.body.length = species.body.default_length;
+    frame.features.extended_behaviors = false;
+    frame.cursor.valid = false;
+
+    controller.step(&frame).expect("controller must initialize");
+
+    frame.feedback.blocked_time = 0.20;
+    frame.feedback.recovery_direction = Vec2::new(1.0, 0.0);
+    frame.feedback.recovery_clearance = 180.0;
+    let short_recovery = controller
+        .step(&frame)
+        .expect("ordinary recovery must start");
+    assert!(
+        short_recovery.target.x > frame.body.position.x,
+        "ordinary recovery should initially retain the first probed route"
+    );
+
+    frame.feedback.blocked_time = 2.99;
+    frame.feedback.recovery_direction = Vec2::new(-1.0, 0.0);
+    let before_threshold = controller
+        .step(&frame)
+        .expect("sub-threshold obstruction remains a short recovery");
+    assert!(
+        before_threshold.motion.direction.x > 0.9,
+        "the short recovery must remain committed before three seconds"
+    );
+
+    frame.feedback.blocked_time = 3.0;
+    let committed_escape = controller
+        .step(&frame)
+        .expect("three-second obstruction must trigger a committed escape");
+    assert!(
+        committed_escape.target.x < frame.body.position.x,
+        "the old icon-facing target must be discarded at three seconds"
+    );
+    assert!(
+        committed_escape.motion.direction.x < -0.99,
+        "the clear recovery route must override the stale target"
+    );
+    assert!(
+        committed_escape.motion.turn_rate >= 14.5,
+        "persistent escape needs enough turn authority to clear the icon"
+    );
+
+    let mut resumed = committed_escape;
+    frame.feedback.blocked_time = 0.0;
+    frame.feedback.actual_displacement = Vec2::new(-4.0, 0.0);
+    for _ in 0..20 {
+        frame.body.position.x -= 4.0;
+        resumed = controller
+            .step(&frame)
+            .expect("real progress must release the committed escape");
+    }
+    assert!(
+        resumed.target.x > frame.body.position.x,
+        "after stable progress the controller must choose a fresh roaming target"
+    );
+    assert_eq!(resumed.state, "wander");
+}
+
+#[test]
 fn twenty_cockroach_controllers_fit_the_default_lua_memory_budget() {
     let host = host();
     let species = host

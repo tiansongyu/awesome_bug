@@ -17,6 +17,7 @@ use std::time::Duration;
 use bug_runtime::contract::{BaitInput, CursorInput};
 use bug_runtime::lua::LuaHost;
 use bug_runtime::math::Vec2;
+use bug_runtime::species::BaitStyle;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 #[cfg(windows)]
@@ -29,7 +30,9 @@ use crate::platform::desktop_icons::DesktopIconTracker;
 use crate::platform::dpi::{
     BodySizePolicy, DisplayGeometry, PixelRect, enable_per_monitor_v2, query_display_geometry,
 };
-use crate::platform::interaction::{InteractionController, cursor_position};
+use crate::platform::interaction::{
+    InteractionController, cursor_position, left_mouse_button_down,
+};
 use crate::platform::layered_window::{LayeredWindow, RendererResources};
 use crate::render::{BAIT_OVERLAY_SIZE, RenderSession, decode_png_path, render_bait};
 use crate::resource::discover;
@@ -79,13 +82,21 @@ enum GenerationOutcome {
 #[derive(Clone, Copy, Debug, Default)]
 struct CursorHistory {
     previous: Option<Vec2>,
+    left_button_was_down: bool,
 }
 
 impl CursorHistory {
     fn sample(&mut self, dt: f32) -> CursorInput {
+        let left_button_down = left_mouse_button_down();
+        let left_button_pressed = left_button_down && !self.left_button_was_down;
+        self.left_button_was_down = left_button_down;
         let Ok(position) = cursor_position() else {
             self.previous = None;
-            return CursorInput::default();
+            return CursorInput {
+                left_button_down,
+                left_button_pressed,
+                ..CursorInput::default()
+            };
         };
         let velocity = self.previous.map_or(Vec2::ZERO, |previous| {
             if dt <= f32::EPSILON {
@@ -98,6 +109,8 @@ impl CursorHistory {
             valid: position.is_finite() && velocity.is_finite(),
             position,
             velocity,
+            left_button_down,
+            left_button_pressed,
         }
     }
 }
@@ -513,7 +526,12 @@ fn run_overlay_generation(
         if output.consume_bait {
             interaction.clear_bait();
         }
-        update_bait_window(bait_window.as_mut(), interaction.bait_position(), &windows)?;
+        update_bait_window(
+            bait_window.as_mut(),
+            interaction.bait_position(),
+            &windows,
+            world.species().visual.bait_style,
+        )?;
 
         *frame_index = frame_index.saturating_add(1);
         if quit_requested
@@ -547,6 +565,7 @@ fn update_bait_window(
     window: Option<&mut LayeredWindow>,
     position: Option<Vec2>,
     bug_windows: &[LayeredWindow],
+    bait_style: BaitStyle,
 ) -> Result<(), AppError> {
     let Some(window) = window else {
         return Ok(());
@@ -558,7 +577,8 @@ fn update_bait_window(
     let Some(bug_window) = bug_windows.first() else {
         return Err(AppError::new("food overlay has no owning bug overlay"));
     };
-    render_bait(window).map_err(|error| AppError::operation("render food overlay", error))?;
+    render_bait(window, bait_style)
+        .map_err(|error| AppError::operation("render food overlay", error))?;
     let half = BAIT_OVERLAY_SIZE as f32 * 0.5;
     window
         .present_at(

@@ -52,7 +52,7 @@ trap cleanup EXIT
 
 unzip -q "${package_archive}" -d "${stage}/package"
 payload_dir="${stage}/package/windows-x64"
-for required in cockroach_overlay.exe cockroach_swarm_20.exe SDL2.dll bugs; do
+for required in cockroach_overlay.exe cockroach_swarm_20.exe turtle_overlay.exe SDL2.dll bugs; do
     if [[ ! -e "${payload_dir}/${required}" ]]; then
         echo "Windows package is incomplete: ${required}" >&2
         exit 1
@@ -68,6 +68,7 @@ install -m 0644 "${script_dir}/run-bait-trace.ps1" "${stage}/"
 install -m 0644 "${script_dir}/run-bait-trace.cmd" "${stage}/"
 install -m 0644 "${script_dir}/run-single-live.cmd" "${stage}/"
 install -m 0644 "${script_dir}/run-swarm-live.cmd" "${stage}/"
+install -m 0644 "${script_dir}/run-turtle-live.cmd" "${stage}/"
 
 output_tmp="$(mktemp --tmpdir="${output_dir}" \
     ".$(basename -- "${output}").new.XXXXXXXX")"

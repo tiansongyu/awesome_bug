@@ -246,6 +246,8 @@ fn parse_input(fields: &mut Fields<'_>) -> FrameInput {
         valid: fields.boolean("cursor.valid"),
         position: fields.vec2("cursor.position"),
         velocity: fields.vec2("cursor.velocity"),
+        left_button_down: false,
+        left_button_pressed: false,
     };
     let bait = BaitInput {
         active: fields.boolean("bait.active"),
